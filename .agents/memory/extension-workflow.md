@@ -3,15 +3,18 @@ name: Extension workflow boundaries
 description: Scope and safety decisions for the Visa Automator Pro content-script update.
 ---
 
-This request is an update to the user's uploaded Chrome extension, not a request
+This product is the user's uploaded Chrome extension, not a request
 for a separate web dashboard or replacement authentication system.
 
 **Why:** The user asked specifically to make content.js detect the current page
 and persist until unfinished steps complete; a standalone web app would not
 change the extension's behavior.
 
-**How to apply:** Deliver a drop-in content script for the original extension.
-Keep its existing panel and supporting scripts unless changes are necessary.
+**How to apply:** Deliver a complete, unpacked-loadable Chrome extension with
+manifest.json at the archive root. The user tried to load the earlier
+content-script-only update directly in Chrome and received “Manifest file is
+missing or unreadable.” They explicitly requested a standalone Chrome extension.
+Preserve the on-page panel and adaptive workflow; do not substitute a website.
 
 Dismiss nuisance HTML dialogs but preserve required data-entry and CAPTCHA
 dialogs. Wait for provider/upload acceptance rather than manufacturing success.

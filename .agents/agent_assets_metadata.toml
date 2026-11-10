@@ -14,3 +14,17 @@ mtime_ms = 1794331378134
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c95153f8-4120-4f5d-9b29-b3fd42034cff/33abce48-efb8-4743-a26a-a0936260a9d9/73ac0b0b-69e6-4acd-9c2e-f3fcdb071ef7"
 storage_version_token = "1794331385332533"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "wnAZdhknMiiz419EAa9iy"
+uri = "file://generated-artifacts/visa-automator-pro-chrome.zip"
+type = "unspecified"
+title = "Visa Automator Pro — Complete Chrome Extension"
+description = "Ready to extract and load unpacked in Chrome. Includes manifest.json, background.js, the adaptive content.js and installation instructions. Confirmed to load in Chromium."
+logical_id = "5750f4db-aae8-4962-835c-76fa63643f88"
+content_hash = "sha256:c2baa6bd4cd1e6a2eb58c86510a9092fba08c221851967bb78f815133ab80270"
+size = 16874
+mtime_ms = 1794332083855
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c95153f8-4120-4f5d-9b29-b3fd42034cff/5750f4db-aae8-4962-835c-76fa63643f88/007e8344-35fe-4fbb-96b1-c94a12320069"
+storage_version_token = "1794332103864350"
+content_type = "application/octet-stream"

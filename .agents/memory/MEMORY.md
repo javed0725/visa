@@ -1,1 +1,1 @@
-- [Extension workflow boundaries](extension-workflow.md) — content-script-only update; preserve required dialogs and wait for evidence rather than guessing success.
+- [Extension workflow boundaries](extension-workflow.md) — ship a complete Chrome extension, not a script-only patch; preserve required dialogs and require completion evidence.

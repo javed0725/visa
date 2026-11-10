@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Visa Automator Pro",
+  "version": "1.1.0",
+  "description": "Adaptive appointment workflow with an on-page control panel, completion checks and paced retries.",
+  "minimum_chrome_version": "109",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://appointment.ivacbd.com/*",
+    "http://192.168.0.100:5000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Open Visa Automator Pro"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://appointment.ivacbd.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

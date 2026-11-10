@@ -1,16 +1,52 @@
-# Visa Automator Pro — adaptive content script
+# Visa Automator Pro — Chrome extension
 
 ## Install
 
-Replace **content.js** in your existing extension folder with this file. Keep your
-existing manifest, background script, popup files and icons. In
-`chrome://extensions`, reload the extension, then refresh the appointment tab.
-Use the existing floating panel to load documents, enter credentials and OTP,
-and press Start. Stop cancels the watcher and scheduled retries.
+1. Download **visa-automator-pro-chrome.zip** and extract it fully. Do not select
+   the ZIP itself or load the entire Replit project.
+2. Open `chrome://extensions` in desktop Chrome.
+3. Turn on **Developer mode**.
+4. Click **Load unpacked**.
+5. Select the extracted folder that directly contains **manifest.json**,
+   **background.js** and **content.js**.
+6. Visit `https://appointment.ivacbd.com/`. Refresh an already-open appointment
+   tab once after installation or reloading the extension.
+7. The floating panel appears on the appointment page. Enter credentials, load
+   documents and press **Start**. **Stop** cancels observation and scheduled retries.
 
-This is a content-script update, not a complete extension package. The supplied
-manifest references an icon that was not included in the uploads, so the original
-extension folder is required.
+This download is a complete Manifest V3 Chrome extension. It does not require
+the original extension folder, a build command, Node.js or a running Replit app.
+No missing icon, popup or side-panel files are referenced.
+
+Click the extension's Chrome toolbar icon to reopen a closed floating panel.
+From another website, the icon opens the appointment site in a new tab. If the
+toolbar icon shows a refresh indicator, refresh the appointment tab once.
+
+## Fixing “Manifest file is missing or unreadable”
+
+This error occurs when Chrome cannot find a readable `manifest.json` at the
+top level of the selected folder. The earlier download was a content-script
+update, not a complete extension. Use this complete ZIP instead.
+
+The folder you select should look like:
+
+```text
+manifest.json
+background.js
+content.js
+README.md
+```
+
+If you downloaded the Replit project source rather than this ZIP, select its
+**extension** subfolder, not the project root.
+
+## OTP service
+
+Manual OTP entry works without any additional server. The optional Fetch OTP
+button uses your original local service at `http://192.168.0.100:5000/`.
+That service must be running and reachable from the computer running Chrome.
+Chrome may ask for local-network access; grant it only if you use that service.
+If automatic fetching fails, type the OTP manually in the panel.
 
 ## Changes
 
@@ -63,7 +99,7 @@ There is no timeout that silently skips the unfinished step.
 
 ## Verification
 
-Run `node --check extension/content.js` and
+Run `node --check extension/content.js`, `node --check extension/background.js` and
 `node --test extension/tests/workflow.test.cjs` from the project root.
 The tests exercise dispatcher logic using controlled page states; they do not
 simulate the live visa site. Live authenticated flows, actual server upload

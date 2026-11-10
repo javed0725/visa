@@ -1,5 +1,5 @@
 // Visa Automator Pro — adaptive, completion-driven content script.
-// Drop-in replacement: no extra scripts or manifest changes required.
+// Used by the complete Manifest V3 extension and as a drop-in content-script update.
 let automatorInterval = null;
 let isRunning = false;
 let uploadedFilesMap = { 1: null, 2: null, 3: null };
@@ -972,8 +972,18 @@ function executeWorkflowSteps(requestedKind = null) {
   }
 }
 
-// Auto-inject when target domain loads
-if (window.location.href.includes('appointment.ivacbd.com')) {
+// Reopen the panel from Chrome's toolbar without resetting the active page.
+if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.type !== 'OPEN_AUTOMATOR_PANEL') return false;
+    createFloatingPanel();
+    sendResponse({ ok: true });
+    return false;
+  });
+}
+
+// Auto-inject only on the exact host allowed by the manifest.
+if (window.location.hostname === 'appointment.ivacbd.com') {
   if (document.readyState === 'loading') {
     window.addEventListener('DOMContentLoaded', createFloatingPanel);
   } else {
