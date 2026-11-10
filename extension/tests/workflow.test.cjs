@@ -243,64 +243,115 @@ function trackerEngine() {
   const e = engine();
   e.run(`
     var nodes = {};
-    document.createElement = tag => ({
-      tagName: tag, style: {}, className: '', textContent: '',
-      appendChild(child) { this.child = child; }
-    });
-    for (const item of TRACKER_STEPS) {
-      var stateLabel = {textContent: ''};
-      var push = {setAttribute() {}};
-      var row = {
-        dataset: {}, style: {}, stateLabel, push,
-        setAttribute(key, value) { this[key] = value; },
-        querySelector(selector) { return selector === 'button' ? this.push : this.stateLabel; }
-      };
-      var label = {firstChild: {textContent: ''}, parentElement: row};
-      nodes[item.id] = {parentElement: label, style: {}, setAttribute() {}};
+    for (const id of ['workflow-status', 'workflow-title', 'workflow-detail', 'workflow-indicator', 'workflow-retry']) {
+      nodes[id] = {textContent: '', className: '', setAttribute(key, value) { this[key] = value; }};
     }
-    nodes['visa-step-list'] = {};
-    nodes['visa-step-empty'] = {};
     document.getElementById = id => nodes[id] || null;
     updateStepTrackerUI = originalUpdateStepTrackerUI;
   `);
   return e;
 }
 
-test('tracker hides all future steps before the first detected screen', () => {
+test('single status starts ready with no future or completed step list', () => {
   const e = trackerEngine();
   e.run('updateStepTrackerUI();');
-  assert.equal(e.run(`Object.values(nodes).filter(n => n.parentElement?.parentElement?.dataset.state).length`), 0);
-  assert.equal(e.run(`nodes['visa-step-empty'].hidden`), false);
+  assert.equal(e.run(`nodes['workflow-title'].textContent`), 'Ready');
+  assert.equal(e.run(`nodes['workflow-indicator'].className`), '');
+  assert.equal(e.run(`document.getElementById('visa-step-list')`), null);
 });
 
-test('tracker reveals uploads directly with a spinner, not skipped login steps', () => {
+test('single status displays detected uploads with a spinner', () => {
   const e = trackerEngine();
   e.run(`isRunning = true; activeStep = newStep(sample('upload')); updateStepTrackerUI();`);
-  assert.equal(e.run(`nodes['step-upload'].parentElement.parentElement.dataset.state`), 'active');
-  assert.equal(e.run(`nodes['step-upload'].className`), 'va-step-spinner');
-  assert.equal(e.run(`nodes['step-sign-in'].parentElement.parentElement.dataset.state`), undefined);
+  assert.equal(e.run(`nodes['workflow-title'].textContent`), 'Upload documents');
+  assert.equal(e.run(`nodes['workflow-indicator'].className`), 'va-working');
+  assert.equal(e.run(`nodes['workflow-status']['aria-busy']`), 'true');
 });
 
-test('completed step keeps its checkmark while the next detected step is revealed', () => {
+test('next detected step replaces completed progress rather than adding rows', () => {
   const e = trackerEngine();
   e.run(`isRunning = true; activeStep = newStep(sample('signIn')); status('signIn', true); activeStep = newStep(sample('otp')); updateStepTrackerUI();`);
-  assert.equal(e.run(`nodes['step-sign-in'].textContent`), '✓');
-  assert.equal(e.run(`nodes['step-sign-in'].parentElement.parentElement.dataset.state`), 'complete');
-  assert.equal(e.run(`nodes['step-otp'].className`), 'va-step-spinner');
-  assert.equal(e.run(`nodes['step-upload'].parentElement.parentElement.dataset.state`), undefined);
+  assert.equal(e.run(`nodes['workflow-title'].textContent`), 'Verify OTP');
+  assert.equal(e.run('Object.keys(nodes).length'), 5);
+  assert.equal(e.run('stepStatus.signIn'), true);
 });
 
-test('stopping removes the working spinner without losing completed progress', () => {
+test('stopping removes the status spinner and shows stopped text', () => {
   const e = trackerEngine();
   e.run(`isRunning = true; activeStep = newStep(sample('upload')); updateStepTrackerUI(); stopAutomation();`);
-  assert.equal(e.run(`nodes['step-upload'].className`), '');
-  assert.equal(e.run(`nodes['step-upload'].parentElement.parentElement.stateLabel.textContent`), 'Stopped');
+  assert.equal(e.run(`nodes['workflow-indicator'].className`), '');
+  assert.match(e.run(`nodes['workflow-detail'].textContent`), /Stopped/);
 });
 
-test('reached steps are ordered by actual execution, not fixed step numbers', () => {
+test('status scans dynamically when no current element is available', () => {
   const e = trackerEngine();
-  e.run(`isRunning = true; activeStep = newStep(sample('upload')); status('upload', true); activeStep = newStep(sample('mission')); updateStepTrackerUI();`);
-  assert.equal(e.run(`nodes['step-upload'].parentElement.parentElement.style.order`), 0);
-  assert.equal(e.run(`nodes['step-mission'].parentElement.parentElement.style.order`), 1);
-  assert.equal(e.run(`nodes['step-popups'].parentElement.parentElement.dataset.state`), undefined);
+  e.run(`isRunning = true; updateStepTrackerUI();`);
+  assert.equal(e.run(`nodes['workflow-title'].textContent`), 'Detecting current step');
+  assert.equal(e.run(`nodes['workflow-indicator'].className`), 'va-working');
+});
+
+test('reset clears in-memory workflow data and does not write defaults to storage', () => {
+  const e = trackerEngine();
+  e.run(`
+    var writes = 0;
+    chrome.storage.local.set = () => writes++;
+    isRunning = true;
+    uploadedFilesMap[1] = {name: 'test.pdf'};
+    primarySlotKey = 2;
+    activeStep = newStep(sample('upload'));
+    trackerNextComplete = true;
+    stepStatus.signIn = true;
+    var originalGeneration = storageGeneration;
+    resetPanelState();
+  `);
+  assert.equal(e.run('writes'), 0);
+  assert.equal(e.run('isRunning'), false);
+  assert.equal(e.run('primarySlotKey'), null);
+  assert.equal(e.run('activeStep'), null);
+  assert.equal(e.run('trackerHistory.length'), 0);
+  assert.equal(e.run('Object.values(uploadedFilesMap).every(v => v === null)'), true);
+  assert.equal(e.run('Object.values(stepStatus).every(v => v === false)'), true);
+  assert.equal(e.run('storageGeneration > originalGeneration'), true);
+});
+
+function backgroundEngine() {
+  let listener;
+  const store = { savedPhone: 'test-phone', savedPass: 'test-password', savedFilesMap: { 1: {} }, primarySlot: 2 };
+  const events = [];
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../background.js'), 'utf8'), {
+    chrome: {
+      action: { onClicked: { addListener() {} } },
+      runtime: { onMessage: { addListener(fn) { listener = fn; } } },
+      tabs: {
+        async query() { return [{ id: 1 }, { id: 2 }]; },
+        async sendMessage(id, message) { events.push(`${id}:${message.type}`); }
+      },
+      storage: { local: { async clear() {
+        events.push('clear');
+        for (const key of Object.keys(store)) delete store[key];
+      } } }
+    },
+    console, URL, AbortController, setTimeout, clearTimeout
+  });
+  return { store, events, listener };
+}
+
+test('RESET broadcasts before clearing storage and leaves no saved keys', async () => {
+  const b = backgroundEngine();
+  const result = await new Promise(resolve => b.listener(
+    { type: 'RESET_AUTOMATOR' }, { tab: { url: 'https://appointment.ivacbd.com/' } }, resolve
+  ));
+  assert.equal(result.ok, true);
+  assert.deepEqual(Object.keys(b.store), []);
+  assert.deepEqual(b.events, ['1:RESET_AUTOMATOR_STATE', '2:RESET_AUTOMATOR_STATE', 'clear']);
+});
+
+test('untrusted pages cannot request an extension storage reset', async () => {
+  const b = backgroundEngine();
+  const result = await new Promise(resolve => b.listener(
+    { type: 'RESET_AUTOMATOR' }, { tab: { url: 'https://other.invalid/' } }, resolve
+  ));
+  assert.equal(result.ok, false);
+  assert.equal(Object.keys(b.store).length, 4);
+  assert.deepEqual(b.events, []);
 });

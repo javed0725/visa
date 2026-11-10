@@ -50,12 +50,17 @@ If automatic fetching fails, type the OTP manually in the panel.
 
 ## Changes
 
-- The compact progress tracker shows only reached/completed steps and the current
-  step. Future steps are hidden, including when starting directly from uploads.
-- The current step has a working spinner while automation is running. Stopping
-  removes the spinner and labels the pending step Stopped.
-- Completed steps retain checkmarks; the next detected screen is revealed
-  automatically in actual execution order, without fixed step numbering.
+- The panel is 320px wide (previously 390px). Fonts, button labels, padding and
+  spacing are scaled down together; the content scrolls on short screens.
+- A single live workflow status replaces all step lists. It shows the detected
+  action, a working spinner, and waiting/verification details. Stopping removes
+  the spinner; the next detected action replaces the previous status.
+- Header **RESET** stops automation and, after confirmation, erases all extension
+  local storage, clears credentials/OTP, selected documents, primary selection,
+  mission/center selections and progress. Other open appointment tabs also reset.
+- Reset cancels in-flight OTP fetching and prevents old file readers or OTP
+  responses from restoring deleted inputs. No saved defaults are written back.
+- Reset does not erase the visa website's cookies/storage or undo server uploads.
 
 - Starts from the currently detected page: sign-in, OTP, document upload,
   mission/center, appointment button, informational Next popup, or available dates.

@@ -3,7 +3,11 @@
 let automatorInterval = null;
 let isRunning = false;
 let uploadedFilesMap = { 1: null, 2: null, 3: null };
-let primarySlotKey = 1; // Default slot 1 is primary
+let primarySlotKey = null;
+let storageGeneration = 0;
+let resetInProgress = false;
+let currentStageDetail = '';
+let panelCreating = false;
 // Visual history follows observed actions, never a presumed serial sequence.
 const trackerHistory = [];
 let cleanupPending = false;
@@ -54,9 +58,13 @@ function base64ToFile(fileObj) {
 }
 
 function createFloatingPanel() {
-  if (document.getElementById('visa-automator-floating-panel')) return;
+  if (panelCreating || document.getElementById('visa-automator-floating-panel')) return;
+  panelCreating = true;
+  const generation = storageGeneration;
 
   chrome.storage.local.get(['panelPos', 'savedPhone', 'savedPass', 'primarySlot', 'savedMission', 'savedCenter', 'savedFilesMap', 'automatorRunning'], async (result) => {
+    panelCreating = false;
+    if (generation !== storageGeneration || resetInProgress) return;
     const posX = result.panelPos?.x || '30px';
     const posY = result.panelPos?.y || '30px';
     const isRight = result.panelPos?.right !== undefined ? result.panelPos.right : '30px';
@@ -69,29 +77,14 @@ function createFloatingPanel() {
     }
 
     const panelHTML = `
-      <div id="visa-automator-floating-panel" style="position: fixed; top: ${posY}; right: ${isRight}; left: ${posX}; width: 390px; background: #0c0d12; color: #fff; z-index: 999999; border-radius: 14px; box-shadow: 0 15px 40px rgba(0,0,0,0.8); font-family: sans-serif; border: 1px solid #1f2030;">
+      <div id="visa-automator-floating-panel" style="position: fixed; top: ${posY}; right: ${isRight}; left: ${posX}; width: 320px; max-width: calc(100vw - 16px); background: #0c0d12; color: #fff; z-index: 999999; border-radius: 11px; box-shadow: 0 10px 28px rgba(0,0,0,0.8); font-family: sans-serif; border: 1px solid #1f2030;">
         <style>
-          #visa-step-list > div:not([data-state]) { display: none !important; }
-          #visa-step-list > div[data-state] {
-            display: flex; gap: 8px; min-height: 28px;
-            border: 1px solid transparent; animation: va-step-reveal .18s ease-out;
-          }
-          #visa-step-list > div[data-state="active"] {
-            border-color: #00b35966; background: #00b35912 !important;
-          }
-          #visa-step-list .va-step-spinner {
-            display: inline-block; width: 10px; height: 10px; margin-left: 5px;
-            border: 2px solid #00b35944; border-top-color: #00ff88;
-            border-radius: 50%; vertical-align: middle; animation: va-step-spin .8s linear infinite;
-          }
-          #visa-step-list .va-step-state { margin-left: 8px; font-size: 9px; color: #9299a8; font-weight: normal; }
-          #visa-step-list > div[data-state="complete"] .va-step-state { color: #00c47b; }
-          #visa-step-list button:disabled { opacity: .45; cursor: default !important; }
           @keyframes va-step-spin { to { transform: rotate(360deg); } }
-          @keyframes va-step-reveal { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
-          @media (prefers-reduced-motion: reduce) {
-            #visa-step-list > div[data-state], #visa-step-list .va-step-spinner { animation: none; }
-          }
+          #visa-automator-floating-panel input { min-width: 0; }
+          #visa-automator-floating-panel * { box-sizing: border-box; }
+          #workflow-indicator { flex: 0 0 auto; width: 11px; height: 11px; color: #00ff88; }
+          #workflow-indicator.va-working { border: 2px solid #00b35944; border-top-color: #00ff88; border-radius: 50%; animation: va-step-spin .8s linear infinite; }
+          @media (prefers-reduced-motion: reduce) { #workflow-indicator.va-working { animation: none; } }
         </style>
         
         <!-- Top Header / Branding -->
@@ -99,15 +92,16 @@ function createFloatingPanel() {
           <div style="display: flex; align-items: center; gap: 8px;">
             <span style="background: #ffcc00; width: 8px; height: 8px; border-radius: 50%;"></span>
             <span style="font-weight: bold; font-size: 13px; letter-spacing: 0.5px;">Visa Automator</span>
-            <span style="font-size: 9px; background: #ffcc0022; color: #ffcc00; padding: 2px 6px; border-radius: 4px;">PRO - 15.11</span>
+            <span style="font-size: 9px; background: #ffcc0022; color: #ffcc00; padding: 2px 6px; border-radius: 4px;">PRO 1.3</span>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
+            <button id="reset-panel" title="Stop automation and erase all saved extension data" style="background: #34202a; border: 1px solid #774052; color: #ffb4be; padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 9px;">RESET</button>
             <button id="minimize-panel" style="background: none; border: none; color: #777; cursor: pointer; font-size: 12px;">_</button>
             <button id="close-panel" style="background: none; border: none; color: #777; cursor: pointer; font-size: 13px;">✕</button>
           </div>
         </div>
 
-        <div style="padding: 14px; max-height: 590px; overflow-y: auto;">
+        <div id="panel-content" style="padding: 14px; max-height: 590px; overflow-y: auto;">
           
           <!-- Profile & Language Header -->
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
@@ -123,7 +117,7 @@ function createFloatingPanel() {
           </div>
 
           <!-- Stage Progress Card -->
-          <div style="background: #13141d; padding: 10px; border-radius: 8px; margin-bottom: 12px; border: 1px solid #1f2030;">
+          <div id="legacy-stage-card" style="display: none; background: #13141d; padding: 10px; border-radius: 8px; margin-bottom: 12px; border: 1px solid #1f2030;">
             <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 6px;">
               <span style="color: #888;">STAGE: <b id="current-stage-txt" style="color: #fff;">Waiting for page</b></span>
               <span style="background: #1a1b26; color: #aaa; padding: 2px 6px; border-radius: 4px; font-size: 10px;">IDLE</span>
@@ -146,11 +140,11 @@ function createFloatingPanel() {
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
               <div>
                 <label style="font-size: 9px; color: #777;">PHONE</label>
-                <input type="text" id="phone-field" value="${result.savedPhone || '01799147785'}" style="width: 100%; background: #161722; border: 1px solid #28293d; color: #fff; padding: 6px; border-radius: 6px; font-size: 11px; box-sizing: border-box;" />
+                <input type="text" id="phone-field" placeholder="Phone" style="width: 100%; background: #161722; border: 1px solid #28293d; color: #fff; padding: 6px; border-radius: 6px; font-size: 11px; box-sizing: border-box;" />
               </div>
               <div>
                 <label style="font-size: 9px; color: #777;">PASSWORD</label>
-                <input type="password" id="pass-field" value="${result.savedPass || ''}" placeholder="Password" style="width: 100%; background: #161722; border: 1px solid #28293d; color: #fff; padding: 6px; border-radius: 6px; font-size: 11px; box-sizing: border-box;" />
+                <input type="password" id="pass-field" placeholder="Password" style="width: 100%; background: #161722; border: 1px solid #28293d; color: #fff; padding: 6px; border-radius: 6px; font-size: 11px; box-sizing: border-box;" />
               </div>
             </div>
 
@@ -196,50 +190,20 @@ function createFloatingPanel() {
               <div id="slot-names-display" style="font-size: 9px; color: #666; text-align: center; margin-top: 4px;">Primary file will be uploaded first automatically.</div>
             </div>
 
-            <!-- INTEGRATED MANUAL SECTION & STEP PUSH BUTTONS WITH "TAKE APPOINTMENT" -->
+            <!-- Exactly one live workflow status, with no completed/future list. -->
             <div style="background: #13141d; padding: 10px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #1f2030;">
               <div style="font-size: 10px; font-weight: bold; color: #00ff88; margin-bottom: 6px; display: flex; justify-content: space-between;">
                 <span>WORKFLOW PROGRESS</span>
                 <span id="manual-file-quick-status" style="color: #aaa; font-weight: normal;">Files: 0/3</span>
               </div>
               
-              <p id="visa-step-empty" role="status" style="color: #9299a8; font-size: 11px; margin: 8px 0;">Press Start to detect the current step.</p>
-              <div id="visa-step-list" aria-label="Workflow progress" style="display: flex; flex-direction: column; gap: 5px; font-size: 11px;">
-                <!-- Step 1 -->
-                <div style="display: flex; justify-content: space-between; align-items: center; background: #161722; padding: 4px 8px; border-radius: 5px;">
-                  <span style="color: #ccc;">1. Sign In <b id="step-sign-in" style="color: #666;">⏳</b></span>
-                  <button id="push-signin-btn" style="background: #00b359; border: none; color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 9px; cursor: pointer; font-weight: bold;">Push</button>
+              <div id="workflow-status" role="status" aria-live="polite" aria-atomic="true" aria-busy="false" style="display: flex; align-items: center; gap: 8px; padding: 8px; background: #161722; border-radius: 6px;">
+                <span id="workflow-indicator" aria-hidden="true">•</span>
+                <div style="min-width: 0; flex: 1;">
+                  <b id="workflow-title" style="font-size: 12px; color: #f5f7fb;">Ready</b>
+                  <div id="workflow-detail" style="font-size: 10px; color: #9299a8; line-height: 1.4; margin-top: 3px;">Press Start to detect the current step.</div>
                 </div>
-                <!-- Step 2 -->
-                <div style="display: flex; justify-content: space-between; align-items: center; background: #161722; padding: 4px 8px; border-radius: 5px;">
-                  <span style="color: #ccc;">2. OTP Verify <b id="step-otp" style="color: #666;">⏳</b></span>
-                  <button id="push-otp-btn" style="background: #00b359; border: none; color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 9px; cursor: pointer; font-weight: bold;">Push</button>
-                </div>
-                <!-- Step 3 -->
-                <div style="display: flex; justify-content: space-between; align-items: center; background: #161722; padding: 4px 8px; border-radius: 5px;">
-                  <span style="color: #ccc;">3. Clean Popups <b id="step-popups" style="color: #666;">⏳</b></span>
-                  <button id="push-popups-btn" style="background: #00b359; border: none; color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 9px; cursor: pointer; font-weight: bold;">Push</button>
-                </div>
-                <!-- Step 4 -->
-                <div style="display: flex; justify-content: space-between; align-items: center; background: #161722; padding: 4px 8px; border-radius: 5px;">
-                  <span style="color: #ccc;">4. Take Appointment <b id="step-take-app" style="color: #666;">⏳</b></span>
-                  <button id="push-take-app-btn" style="background: #00b359; border: none; color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 9px; cursor: pointer; font-weight: bold;">Push</button>
-                </div>
-                <!-- Step 5 -->
-                <div style="display: flex; justify-content: space-between; align-items: center; background: #161722; padding: 4px 8px; border-radius: 5px;">
-                  <span style="color: #ccc;">5. Upload Files <b id="step-upload" style="color: #666;">⏳</b></span>
-                  <button id="push-upload-btn" style="background: #00b359; border: none; color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 9px; cursor: pointer; font-weight: bold;">Push</button>
-                </div>
-                <!-- Step 6 -->
-                <div style="display: flex; justify-content: space-between; align-items: center; background: #161722; padding: 4px 8px; border-radius: 5px;">
-                  <span style="color: #ccc;">6. Mission/Center <b id="step-mission" style="color: #666;">⏳</b></span>
-                  <button id="push-mission-btn" style="background: #00b359; border: none; color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 9px; cursor: pointer; font-weight: bold;">Push</button>
-                </div>
-                <!-- Step 7 -->
-                <div style="display: flex; justify-content: space-between; align-items: center; background: #161722; padding: 4px 8px; border-radius: 5px;">
-                  <span style="color: #ccc;">7. Slot Booking <b id="step-booking" style="color: #666;">⏳</b></span>
-                  <button id="push-booking-btn" style="background: #ffcc00; border: none; color: #000; padding: 2px 6px; border-radius: 4px; font-size: 9px; cursor: pointer; font-weight: bold;">Push</button>
-                </div>
+                <button id="workflow-retry" style="font-size: 9px; padding: 5px 7px; border: 0; border-radius: 4px; background: #00b359; color: white; cursor: pointer;" hidden>Run</button>
               </div>
             </div>
 
@@ -308,12 +272,22 @@ function createFloatingPanel() {
     const div = document.createElement('div');
     div.innerHTML = panelHTML;
     document.body.appendChild(div);
+    document.getElementById('phone-field').value = result.savedPhone || '';
+    document.getElementById('pass-field').value = result.savedPass || '';
+    compactPanel(document.getElementById('visa-automator-floating-panel'));
 
     updateSlotDisplayStatus();
     updateStepTrackerUI();
 
     const missionSelect = document.getElementById('config-mission');
     const centerSelect = document.getElementById('config-center');
+    for (const select of [missionSelect, centerSelect]) {
+      const blank = document.createElement('option');
+      blank.value = '';
+      blank.textContent = 'Select…';
+      select.prepend(blank);
+      select.value = '';
+    }
     if (result.savedMission && missionSelect) missionSelect.value = result.savedMission;
     if (result.savedCenter && centerSelect) centerSelect.value = result.savedCenter;
 
@@ -348,34 +322,24 @@ function createFloatingPanel() {
       activeBtn.style.color = '#fff';
     }
 
-    // Step Push Button Listeners
-    document.getElementById('push-signin-btn').addEventListener('click', () => {
-      logMessage('Manual Push: Executing Sign In...');
-      executeSignInStep();
+    document.getElementById('workflow-retry').addEventListener('click', () => {
+      if (activeStep) runManualStep(activeStep.kind);
     });
-    document.getElementById('push-otp-btn').addEventListener('click', () => {
-      logMessage('Manual Push: Verifying OTP...');
-      pushManualOTP();
-    });
-    document.getElementById('push-popups-btn').addEventListener('click', () => {
-      logMessage('Manual Push: Cleaning Popups...');
-      executePopupCleanup();
-    });
-    document.getElementById('push-take-app-btn').addEventListener('click', () => {
-      logMessage('Manual Push: Clicking Take Appointment...');
-      executeTakeAppointmentStep();
-    });
-    document.getElementById('push-upload-btn').addEventListener('click', () => {
-      logMessage('Manual Push: Uploading Webfiles...');
-      executeFileUploadLogic();
-    });
-    document.getElementById('push-mission-btn').addEventListener('click', () => {
-      logMessage('Manual Push: Selecting Mission & Center...');
-      executeMissionSelection();
-    });
-    document.getElementById('push-booking-btn').addEventListener('click', () => {
-      logMessage('Manual Push: Scanning Slots & Booking...');
-      executeSlotBooking();
+    document.getElementById('reset-panel').addEventListener('click', async () => {
+      if (!window.confirm('Stop automation and permanently erase all saved extension inputs, files and settings?')) return;
+      resetPanelState();
+      resetInProgress = true;
+      try {
+        const response = await chrome.runtime.sendMessage({ type: 'RESET_AUTOMATOR' });
+        if (!response?.ok) throw new Error(response?.error || 'Reset failed');
+        logMessage('All saved extension data was cleared.');
+      } catch (error) {
+        logMessage(`Storage reset failed: ${error.message}`);
+        currentStageDetail = 'Reset failed. Please try RESET again.';
+      } finally {
+        resetInProgress = false;
+        updateStepTrackerUI();
+      }
     });
 
     document.querySelectorAll('.webfile-slot-btn').forEach(btn => {
@@ -390,6 +354,7 @@ function createFloatingPanel() {
         const slotNum = e.target.getAttribute('data-slot');
         const file = e.target.files[0];
         if (file) {
+          const generation = storageGeneration;
           uploadedFilesMap[slotNum] = file;
           const slotBtn = document.querySelector(`.webfile-slot-btn[data-slot="${slotNum}"]`);
           slotBtn.style.background = slotNum == primarySlotKey ? '#00b359' : '#28293d';
@@ -399,7 +364,9 @@ function createFloatingPanel() {
 
           try {
             const base64Data = await fileToBase64(file);
+            if (generation !== storageGeneration || resetInProgress) return;
             chrome.storage.local.get(['savedFilesMap'], (res) => {
+              if (generation !== storageGeneration || resetInProgress) return;
               const currentMap = res.savedFilesMap || {};
               currentMap[slotNum] = base64Data;
               chrome.storage.local.set({ savedFilesMap: currentMap });
@@ -442,6 +409,7 @@ function createFloatingPanel() {
     let isDragging = false, startX, startY;
 
     header.addEventListener('mousedown', (e) => {
+      if (e.target.closest('button')) return;
       isDragging = true;
       startX = e.clientX - panel.offsetLeft;
       startY = e.clientY - panel.offsetTop;
@@ -466,6 +434,10 @@ function createFloatingPanel() {
     document.getElementById('close-panel').addEventListener('click', () => {
       stopAutomation();
       panel.remove();
+    });
+    document.getElementById('minimize-panel').addEventListener('click', () => {
+      const content = document.getElementById('panel-content');
+      content.hidden = !content.hidden;
     });
 
     document.getElementById('start-btn').addEventListener('click', () => {
@@ -513,61 +485,94 @@ function updateSlotDisplayStatus() {
 }
 
 function updateStepTrackerUI() {
-  const list = document.getElementById('visa-step-list');
-  if (!list) return;
-  // The extra Next dialog has no manual action and is created only when needed.
-  if (!document.getElementById('step-next') && trackerHistory.includes('next')) {
-    const row = document.createElement('div');
-    row.style.cssText = 'padding: 4px 8px; border-radius: 5px; justify-content: space-between; align-items: center;';
-    const text = document.createElement('span');
-    text.appendChild(document.createTextNode('Continue popup '));
-    const indicator = document.createElement('b');
-    indicator.id = 'step-next';
-    text.appendChild(indicator);
-    row.appendChild(text);
-    list.appendChild(row);
-  }
+  const box = document.getElementById('workflow-status');
+  if (!box) return;
   const current = cleanupPending ? 'popups' : popupContinuation?.kind || activeStep?.kind;
-  let visibleCount = 0;
-  TRACKER_STEPS.forEach(item => {
-    const elem = document.getElementById(item.id);
-    if (!elem) return;
-    const row = elem.parentElement.parentElement;
-    const complete = item.key ? stepStatus[item.key] : trackerNextComplete;
-    const reached = trackerHistory.includes(item.kind);
-    const isCurrent = item.kind === current;
-    const suspended = item.kind === activeStep?.kind && !isCurrent;
-    const shown = reached && (complete || isCurrent || suspended);
-    if (!shown) { delete row.dataset.state; return; }
-    visibleCount++;
-    row.style.order = trackerHistory.indexOf(item.kind);
-    row.dataset.state = complete && !isCurrent ? 'complete' : isCurrent ? 'active' : 'waiting';
-    const working = isCurrent && isRunning;
-    row.setAttribute('aria-busy', String(working));
-    elem.parentElement.firstChild.textContent = `${item.title} `;
-    elem.textContent = complete && !isCurrent ? '✓' : working ? '' : '•';
-    elem.className = working ? 'va-step-spinner' : '';
-    elem.style.color = '#00ff88';
-    elem.setAttribute('aria-hidden', 'true');
-    let stateLabel = row.querySelector('.va-step-state');
-    if (!stateLabel) {
-      stateLabel = document.createElement('small');
-      stateLabel.className = 'va-step-state';
-      elem.parentElement.appendChild(stateLabel);
-    }
-    stateLabel.textContent = complete && !isCurrent ? 'Completed' : suspended ? 'Waiting' : working ? 'Working…' : 'Stopped';
-    const push = row.querySelector('button');
-    if (push) {
-      push.hidden = !!complete || suspended;
-      push.disabled = working;
-      push.setAttribute('aria-label', `Run ${item.title.toLowerCase()}`);
-    }
+  const step = TRACKER_STEPS.find(item => item.kind === current);
+  const last = [...trackerHistory].reverse().find(kind => {
+    const item = TRACKER_STEPS.find(s => s.kind === kind);
+    return item?.key ? stepStatus[item.key] : kind === 'next' && trackerNextComplete;
   });
-  const empty = document.getElementById('visa-step-empty');
-  if (empty) {
-    empty.hidden = visibleCount > 0;
-    empty.textContent = isRunning ? 'Scanning the page for the current step…' : 'Press Start to detect the current step.';
+  const complete = !current && !!last;
+  const working = isRunning && !resetInProgress;
+  const title = resetInProgress ? 'Resetting…' : step?.title ||
+    (isRunning ? 'Detecting current step' : complete ? 'Step completed' : 'Ready');
+  document.getElementById('workflow-title').textContent = title;
+  document.getElementById('workflow-detail').textContent = resetInProgress ? 'Clearing all saved extension data…' :
+    !isRunning && current ? 'Stopped. Press Start to resume detection.' :
+    currentStageDetail || (working ? 'Watching the page for available elements…' :
+    complete ? 'Press Start to continue from the current page.' : 'Press Start to detect the current step.');
+  const indicator = document.getElementById('workflow-indicator');
+  indicator.className = working || resetInProgress ? 'va-working' : '';
+  indicator.textContent = working || resetInProgress ? '' : complete ? '✓' : '•';
+  box.setAttribute('aria-busy', String(working || resetInProgress));
+  const retry = document.getElementById('workflow-retry');
+  retry.hidden = !activeStep || working || resetInProgress;
+  retry.disabled = resetInProgress;
+}
+
+function compactPanel(panel) {
+  const properties = ['fontSize', 'padding', 'margin', 'marginBottom', 'marginTop', 'gap',
+    'borderRadius', 'height', 'minHeight', 'maxHeight', 'letterSpacing'];
+  for (const el of panel.querySelectorAll('[style]')) {
+    const hasMargin = !!el.style.margin;
+    for (const property of properties) {
+      if (hasMargin && ['marginTop', 'marginBottom'].includes(property)) continue;
+      const value = el.style[property];
+      if (value?.includes('px')) el.style[property] = value.replace(/([\d.]+)px/g, (_, n) => `${(Number(n) * 0.82).toFixed(2)}px`);
+    }
   }
+  const content = panel.querySelector('#panel-content');
+  content.style.maxHeight = `${Math.max(100, Math.min(484, window.innerHeight - 72))}px`;
+  const rect = panel.getBoundingClientRect();
+  panel.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - rect.width - 8))}px`;
+  panel.style.top = `${Math.max(8, Math.min(rect.top, window.innerHeight - 48))}px`;
+  panel.style.right = 'auto';
+}
+
+function resetPanelState() {
+  // Invalidate async file readers and fetched OTPs before clearing persistent data.
+  storageGeneration++;
+  isRunning = false;
+  clearTimeout(automatorInterval);
+  automatorInterval = null;
+  workflowObserver?.disconnect();
+  workflowObserver = null;
+  activeStep = null;
+  popupContinuation = null;
+  cleanupPending = false;
+  trackerHistory.length = 0;
+  trackerNextComplete = false;
+  for (const key of Object.keys(stepStatus)) stepStatus[key] = false;
+  uploadedFilesMap = { 1: null, 2: null, 3: null };
+  primarySlotKey = null;
+  attemptCount = 0;
+  currentStageDetail = '';
+  const panel = document.getElementById('visa-automator-floating-panel');
+  if (panel) {
+    panel.querySelectorAll('input, select').forEach(el => { el.value = ''; });
+    panel.querySelectorAll('.webfile-slot-btn').forEach(el => {
+      el.textContent = el.dataset.slot;
+      el.style.background = '#161722';
+      el.style.color = '#aaa';
+    });
+    panel.querySelectorAll('.primary-toggle-btn').forEach(el => {
+      el.textContent = 'Make Primary';
+      el.style.background = '#161722';
+      el.style.color = '#666';
+    });
+    panel.style.left = '16px';
+    panel.style.top = '16px';
+    const log = panel.querySelector('#view-run > div:last-child');
+    if (log) log.replaceChildren();
+  }
+  for (const [id, value] of [['metric-attempts', '0'], ['metric-cycle', '1'], ['metric-dates', '0'], ['metric-next', '-']]) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  }
+  updateSlotDisplayStatus();
+  updateStage('Ready', '0%', '');
+  updateStepTrackerUI();
 }
 
 function revealTrackerStep(kind) {
@@ -587,16 +592,18 @@ function logMessage(msg) {
 }
 
 function updateStage(stageName, progressWidth, desc = '') {
+  currentStageDetail = desc;
   const stageTxt = document.getElementById('current-stage-txt');
   const progressBar = document.getElementById('progress-bar');
   const stageDesc = document.getElementById('stage-desc');
   if (stageTxt) stageTxt.innerText = stageName;
   if (progressBar) progressBar.style.width = progressWidth;
   if (stageDesc && desc) stageDesc.innerText = desc;
+  updateStepTrackerUI();
 }
 
 function startAutomation() {
-  if (isRunning) return;
+  if (isRunning || resetInProgress) return;
   isRunning = true;
   chrome.storage.local.set({ automatorRunning: true });
   logMessage('Adaptive automation started. Waiting for verified page transitions.');
@@ -628,6 +635,7 @@ function pushManualOTP() {
 }
 
 function pollOTPFromBackground() {
+  const generation = storageGeneration;
   try {
     if (!chrome.runtime?.id) {
       logMessage('Background context inactive. Please type OTP manually.');
@@ -635,6 +643,7 @@ function pollOTPFromBackground() {
     }
     
     chrome.runtime.sendMessage({ type: 'FETCH_OTP' }, (response) => {
+      if (generation !== storageGeneration || resetInProgress) return;
       if (chrome.runtime.lastError || !response || !response.ok) {
         logMessage('Auto fetch failed. Type OTP manually in the box.');
         return;
@@ -969,6 +978,7 @@ function performUploads(step) {
   // Stay locked here until the confirmed upload screen actually transitions.
 }
 function runManualStep(kind) {
+  if (resetInProgress) return false;
   if (activeStep && activeStep.kind !== kind) {
     logMessage(`Waiting for ${activeStep.kind}; another step cannot start yet.`);
     return false;
@@ -1062,6 +1072,11 @@ function executeWorkflowSteps(requestedKind = null) {
 // Reopen the panel from Chrome's toolbar without resetting the active page.
 if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.type === 'RESET_AUTOMATOR_STATE') {
+      resetPanelState();
+      sendResponse({ ok: true });
+      return false;
+    }
     if (message?.type !== 'OPEN_AUTOMATOR_PANEL') return false;
     createFloatingPanel();
     sendResponse({ ok: true });

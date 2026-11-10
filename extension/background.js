@@ -2,6 +2,7 @@
 const APPOINTMENT_URL = 'https://appointment.ivacbd.com/';
 const OTP_URL = 'http://192.168.0.100:5000/get-latest-otp?consume=1';
 let otpRequestPending = false;
+let otpController = null;
 
 chrome.action.onClicked.addListener(async tab => {
   try {
@@ -27,19 +28,41 @@ chrome.action.onClicked.addListener(async tab => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type !== 'FETCH_OTP') return false;
+  if (!['FETCH_OTP', 'RESET_AUTOMATOR'].includes(message?.type)) return false;
   if (!sender.tab?.url?.startsWith(APPOINTMENT_URL)) {
     sendResponse({ ok: false, error: 'OTP requests are only allowed from the appointment page.' });
     return false;
+  }
+  if (message.type === 'RESET_AUTOMATOR') {
+    (async () => {
+      try {
+        otpController?.abort();
+        const tabs = await chrome.tabs.query({ url: `${APPOINTMENT_URL}*` });
+        await Promise.all(tabs.map(tab => chrome.tabs.sendMessage(tab.id, { type: 'RESET_AUTOMATOR_STATE' }).catch(() => {})));
+        // Last operation: leave storage truly empty, without writing defaults back.
+        await chrome.storage.local.clear();
+        sendResponse({ ok: true });
+      } catch (error) {
+        sendResponse({ ok: false, error: error.message });
+      }
+    })();
+    return true;
   }
   if (otpRequestPending) {
     sendResponse({ ok: false, error: 'An OTP request is already running.' });
     return false;
   }
   otpRequestPending = true;
+  otpController = new AbortController();
   (async () => {
     try {
-      const response = await fetch(OTP_URL, { signal: AbortSignal.timeout(12000), cache: 'no-store' });
+      const timeout = setTimeout(() => otpController?.abort(), 12000);
+      let response;
+      try {
+        response = await fetch(OTP_URL, { signal: otpController.signal, cache: 'no-store' });
+      } finally {
+        clearTimeout(timeout);
+      }
       if (!response.ok) throw new Error(`OTP service returned HTTP ${response.status}`);
       const data = await response.json();
       if (!data || typeof data !== 'object') throw new Error('Invalid OTP service response');
@@ -48,6 +71,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false, error: error.message });
     } finally {
       otpRequestPending = false;
+      otpController = null;
     }
   })();
   return true;
