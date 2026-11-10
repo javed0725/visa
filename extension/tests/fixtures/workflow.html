@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Isolated extension workflow test</title></head>
+<body style="font-family: sans-serif; padding: 30px;">
+  <main id="fixture" style="margin-left: 360px; max-width: 500px;"></main>
+  <script>
+    // Test-only page. No external requests, real credentials, SMS or uploads.
+    const fixture = document.getElementById('fixture');
+    window.flowEvents = [];
+    window.verifyCount = 0;
+    window.continueCount = 0;
+    window.centerConfirmed = false;
+    window.savedForTest = {};
+    window.otpCallbacks = [];
+    window.chrome = {
+      storage: { local: {
+        get(keys, callback) { callback({ ...savedForTest }); },
+        set(data) { Object.assign(savedForTest, data); }
+      } },
+      runtime: {
+        id: 'workflow-fixture',
+        onMessage: { addListener() {} },
+        sendMessage(message, callback) {
+          if (message.type === 'FETCH_OTP') otpCallbacks.push(callback);
+        }
+      }
+    };
+    window.addNuisance = () => {
+      const modal = document.createElement('div');
+      modal.setAttribute('role', 'dialog');
+      modal.style.cssText = 'position:fixed;right:10px;top:10px;padding:20px;background:#ddd';
+      modal.innerHTML = '<p>Example notification</p><button>Cancel</button>';
+      modal.querySelector('button').onclick = () => { flowEvents.push('popup-closed'); modal.remove(); };
+      document.body.appendChild(modal);
+    };
+    function showLogin() {
+      flowEvents.push('login-opened');
+      fixture.innerHTML = '<form id="login-form"><input id="site-phone" type="tel" required><input id="site-password" type="password" required><button type="submit">Sign In</button></form>';
+      fixture.querySelector('form').onsubmit = event => {
+        event.preventDefault();
+        flowEvents.push('signed-in');
+        showOTP();
+      };
+    }
+    function showOTP() {
+      fixture.innerHTML = '<form id="otp-form"><label>OTP <input id="otp" maxlength="6" required></label><button type="submit">Verify</button></form>';
+      fixture.querySelector('form').onsubmit = event => {
+        event.preventDefault();
+        verifyCount++;
+        flowEvents.push('otp-submitted');
+        setTimeout(showAppointment, 300);
+      };
+    }
+    function showAppointment() {
+      fixture.innerHTML = '<button id="site-appointment">Take Your Appointment</button>';
+      fixture.querySelector('button').onclick = () => {
+        flowEvents.push('appointment-opened');
+        fixture.innerHTML = '<button id="site-next">Next</button>';
+        fixture.querySelector('button').onclick = () => {
+          flowEvents.push('next-clicked');
+          showUploads();
+        };
+      };
+    }
+    function showUploads() {
+      fixture.innerHTML = '<form id="upload-form"><div class="g-recaptcha">Fixture CAPTCHA (manual)<textarea name="g-recaptcha-response" hidden></textarea></div>' +
+        [0, 1, 2, 3].map(i => '<div data-upload-item><input type="file" id="site-file-' + i + '" required' +
+          (i === 0 ? ' disabled' : '') + '><span class="upload-status" role="status">Waiting</span></div>').join('') +
+        '<button id="upload-continue" disabled>Continue</button></form>';
+      fixture.querySelectorAll('input[type="file"]').forEach((input, index) => {
+        input.onchange = () => {
+          input.dataset.uploadStatus = 'uploading';
+          input.parentElement.querySelector('[role="status"]').textContent = 'Awaiting acknowledgment';
+          flowEvents.push('attached:' + input.files[0].name);
+        };
+      });
+      fixture.querySelector('form').onsubmit = event => {
+        event.preventDefault();
+        continueCount++;
+        flowEvents.push('uploads-continued');
+        showMission();
+      };
+    }
+    window.finishCaptcha = () => {
+      fixture.querySelector('[name="g-recaptcha-response"]').value = 'fixture-verified-response';
+      fixture.querySelector('.g-recaptcha').style.display = 'none';
+      document.getElementById('site-file-0').disabled = false;
+    };
+    window.ackUpload = index => {
+      const input = document.getElementById('site-file-' + index);
+      if (!input.files.length) throw new Error('Cannot acknowledge an unattached document');
+      input.dataset.uploadStatus = 'success';
+      input.parentElement.querySelector('[role="status"]').textContent = '✓';
+      flowEvents.push('ack:' + input.files[0].name);
+      document.getElementById('upload-continue').disabled =
+        [...fixture.querySelectorAll('input[type="file"]')].some(el => el.dataset.uploadStatus !== 'success');
+    };
+    function showMission() {
+      fixture.innerHTML = '<form id="mission-form"><select name="mission" id="mission"><option value="existing" selected>Existing mission</option><option value="other">Other mission</option></select>' +
+        '<select name="center" id="center" disabled><option value="">Select center</option></select><button>Confirm Mission &amp; IVAC Center</button></form>';
+      fixture.querySelector('form').onsubmit = event => {
+        event.preventDefault();
+        window.confirmedMission = document.getElementById('mission').value;
+        window.confirmedCenter = document.getElementById('center').value;
+        centerConfirmed = true;
+        flowEvents.push('center-confirmed');
+        fixture.innerHTML = '<div id="mission-success" data-center-status="confirmed">IVAC selection confirmed</div>';
+      };
+    }
+    window.loadCenters = () => {
+      const center = document.getElementById('center');
+      center.innerHTML = '<option value="">Select center</option><option value="closed" disabled>Closed IVAC</option><option value="open">Available IVAC</option>';
+      center.disabled = false;
+    };
+    fixture.innerHTML = '<button id="landing-signin">Sign In</button>';
+    fixture.querySelector('button').onclick = showLogin;
+  </script>
+</body>
+</html>

@@ -67,6 +67,27 @@ code, but never automatically retries the same code.
 
 ## Changes
 
+- Start checks the page immediately. A landing-page Sign In link is opened when
+  the credentials form is not yet visible; saved phone/password are then filled.
+- The normal flow is Sign In → OTP → Take Your Appointment → Next → documents →
+  Continue → Mission/IVAC. Detection can also resume at a later visible screen.
+- Four document slots are available, including file persistence and RESET.
+  The selected primary document is always acknowledged before any secondary
+  document is attached. If no primary is selected, the first loaded slot is used
+  first; an explicitly selected but empty primary slot waits for its file.
+- Upload fields may be disabled or waiting on CAPTCHA/loading; automation waits
+  without using a different field to bypass the primary upload.
+- Multiple website inputs and a single reusable upload input are supported.
+  Each new document needs its own fresh acknowledgment. An old green tick from a
+  previous document is not enough to confirm the next one.
+- Continue/Next is clicked only after every loaded file is acknowledged and
+  required website slots are satisfied. Optional empty slots do not require
+  extra files. No upload timeout silently skips a document.
+- The website's selected mission is preserved. The extension waits for enabled
+  IVAC options, keeps an existing valid center or selects a preferred available
+  center (otherwise the first enabled center), then uses the page's continuation
+  control. An unavailable configured preference does not block selection.
+
 - The panel is 320px wide (previously 390px). Fonts, button labels, padding and
   spacing are scaled down together; the content scrolls on short screens.
 - A single live workflow status replaces all step lists. It shows the detected
@@ -91,7 +112,9 @@ code, but never automatically retries the same code.
 - Reattaches documents on explicit upload errors; never repeatedly replaces
   selected files while their upload may still be running.
 - Marks completion only after a submitted step disappears and another recognized
-  step remains visible for at least 1.2 seconds, or explicit booking success.
+  step remains visible for at least 1.2 seconds, or an explicit success signal.
+  Upload completion additionally requires every loaded document acknowledged and
+  the upload continuation action sent.
 - Restores a running session on page reload using the existing local setting.
 - Excludes the extension's own panel from all page scans.
 

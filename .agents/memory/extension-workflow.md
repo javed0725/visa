@@ -45,3 +45,11 @@ verification while also rejecting premature automation stops.
 
 **How to apply:** Keep detection persistent, not submission. Never treat a
 Verify click as success or overwrite an in-progress manual entry.
+
+On the final Mission/IVAC page, the user says the mission is already selected;
+the automator should select an available IVAC center without changing that mission.
+
+**Why:** The user explicitly described this page behavior and requested selecting
+the available center, not replacing the mission using panel configuration.
+
+**How to apply:** Preserve the page's mission and wait for enabled center options.

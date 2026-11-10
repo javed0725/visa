@@ -15,7 +15,7 @@ function engine() {
       body: {}
     },
     chrome: { storage: { local: { set() {} } } },
-    console, setTimeout, clearTimeout,
+    console, setTimeout, clearTimeout, Event,
     Date: class extends Date { static now() { return now; } }
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../content.js'), 'utf8'), context);
@@ -26,6 +26,7 @@ function engine() {
     var originalCaptchaPending = captchaPending;
     var originalUpdateStepTrackerUI = updateStepTrackerUI;
     var originalPerformStep = performStep;
+    var originalDetectSteps = detectSteps;
     var observed = [];
     var pageCandidates = [];
     var pageBlocked = false;
@@ -102,7 +103,7 @@ test('cleanup takes priority and retains the current pending step', () => {
 
 test('informational Next popup can interrupt and resume a pending step', () => {
   const e = engine();
-  e.run(`pageCandidates = [sample('upload')]; executeWorkflowSteps(); pageCandidates = [sample('next')]; executeWorkflowSteps();`);
+  e.run(`pageCandidates = [sample('upload')]; executeWorkflowSteps(); pageCandidates = [{...sample('next'), interruption:true}]; executeWorkflowSteps();`);
   assert.equal(e.run('clicks.join(",")'), 'upload,next');
   assert.equal(e.run('activeStep.kind'), 'upload');
   assert.equal(e.run('stepStatus.filesUploaded'), false);
@@ -188,12 +189,17 @@ test('upload confirmation waits for server acknowledgment of every file', () => 
   const e = engine();
   e.run(`
     var localRoot = {querySelectorAll: () => [{}]};
-    var input = {dataset: {}, files: [{}], closest: () => localRoot};
+    var file = {name:'test.pdf',size:1};
+    uploadedFilesMap[1] = file;
+    var input = {dataset: {}, files: [file], closest: () => localRoot};
     fileInputs = () => [input];
     uploadSucceeded = originalUploadSucceeded;
-    button = pattern => pattern.test('Confirm all information is correct') ? {} : null;
+    var confirmButton = {textContent:'Confirm all information is correct',getAttribute:()=>null};
+    all = selector => selector.startsWith('button') ? [confirmButton] : [];
+    enabled = el => !!el;
     click = () => { clicks.push('confirm'); return true; };
     var uploadStep = newStep(sample('upload'));
+    uploadStep.uploadRecords = [{file,attached:true,done:false,sawPending:true}];
     originalPerformUploads(uploadStep);
   `);
   assert.equal(e.run('clicks.length'), 0);
@@ -522,4 +528,158 @@ test('browser-generated form submit during the automatic click is not a manual o
   assert.equal(e.run('clicks.length'), 1);
   assert.equal(e.run('getOTPSession().manualPageInput'), false);
   assert.equal(e.run('getOTPSession().submitted'), true);
+});
+
+test('landing page Sign In is detected when no form is visible', () => {
+  const e = engine();
+  e.run(`
+    var landingButton = {textContent:'Sign In',getAttribute:()=>null,closest:()=>null};
+    all = selector => selector.startsWith('button') ? [landingButton] : [];
+    fileInputs = () => [];
+    var detected = originalDetectSteps();
+  `);
+  assert.equal(e.run('detected[0].kind'), 'login');
+});
+
+test('plain Next is a real page step, not a popup interruption', () => {
+  const e = engine();
+  e.run(`
+    var nextButton = {textContent:'Next',getAttribute:()=>null,closest:()=>null};
+    all = selector => selector.startsWith('button') ? [nextButton] : [];
+    fileInputs = () => [];
+    var detected = originalDetectSteps();
+  `);
+  assert.equal(e.run('detected[0].kind'), 'next');
+  assert.equal(e.run('!!detected[0].interruption'), false);
+});
+
+function uploadFlowEngine() {
+  const e = engine();
+  e.run(`
+    class MockTransfer {
+      constructor() { this.files = []; this.items = {add:file=>this.files.push(file)}; }
+    }
+    DataTransfer = MockTransfer;
+    var attached = [];
+    var uploads = FILE_SLOTS.map((slot,index) => ({
+      dataset:{}, files:[], ack:false, disabled:false, matches:()=>false,
+      dispatchEvent(event) { if(event.type==='change') { this.ack=false; attached.push(this.files[0].name); } }
+    }));
+    FILE_SLOTS.forEach(slot => uploadedFilesMap[slot] = {name:'document-'+slot+'.pdf',size:1});
+    primarySlotKey = 3;
+    fileInputs = () => uploads;
+    uploadScope = input => input;
+    uploadSucceeded = input => input.ack;
+    uploadReceipt = input => String(input.ack);
+    var continueButton = {textContent:'Continue',getAttribute:()=>null};
+    all = selector => selector.startsWith('button') ? [continueButton] : [];
+    enabled = el => !!el && !el.disabled;
+    click = () => {clicks.push('continue');return true;};
+    var uploadStep = newStep(sample('upload'));
+  `);
+  return e;
+}
+
+test('four documents upload primary-first and never advance ahead of acknowledgment', () => {
+  const e = uploadFlowEngine();
+  e.run(`performUploads(uploadStep); performUploads(uploadStep);`);
+  assert.equal(e.run('attached.join(",")'), 'document-3.pdf');
+  assert.equal(e.run('clicks.length'), 0);
+  for (let i = 0; i < 3; i++) {
+    e.run(`uploads[${i}].ack = true; performUploads(uploadStep);`);
+  }
+  assert.equal(e.run('attached.join(",")'), 'document-3.pdf,document-1.pdf,document-2.pdf,document-4.pdf');
+  assert.equal(e.run('clicks.length'), 0);
+  e.advance(1000);
+  e.run(`uploads[3].ack = true; performUploads(uploadStep);`);
+  assert.equal(e.run('clicks.length'), 1);
+  assert.equal(e.run('uploadStep.uploadContinueSent'), true);
+  assert.equal(e.run('stepStatus.filesUploaded'), false);
+});
+
+test('disabled primary input blocks all secondary document attachments', () => {
+  const e = uploadFlowEngine();
+  e.run(`uploads[0].disabled = true; performUploads(uploadStep);`);
+  assert.equal(e.run('attached.length'), 0);
+  e.run(`uploads[0].disabled = false; performUploads(uploadStep);`);
+  assert.equal(e.run('attached.join(",")'), 'document-3.pdf');
+});
+
+test('an empty selected primary slot cannot silently promote secondary files', () => {
+  const e = uploadFlowEngine();
+  e.run(`uploadedFilesMap[3] = null; performUploads(uploadStep);`);
+  assert.equal(e.run('attached.length'), 0);
+});
+
+test('a reusable upload input needs a new acknowledgment for each file', () => {
+  const e = uploadFlowEngine();
+  e.run(`
+    uploads = [uploads[0]];
+    // This fixture deliberately leaves the previous success signal unchanged.
+    uploads[0].dispatchEvent = function(event) {
+      if(event.type==='change') attached.push(this.files[0].name);
+    };
+    performUploads(uploadStep);
+    uploads[0].ack = true;
+    performUploads(uploadStep);
+    performUploads(uploadStep);
+  `);
+  assert.equal(e.run('attached.length'), 2);
+  assert.equal(e.run('uploadStep.uploadRecords[1].done'), false);
+  assert.equal(e.run('clicks.length'), 0);
+  e.run(`uploads[0].ack = false; performUploads(uploadStep); uploads[0].ack = true; performUploads(uploadStep);`);
+  assert.equal(e.run('attached.length'), 3);
+});
+
+test('empty optional website slots do not demand documents absent from the panel', () => {
+  const e = uploadFlowEngine();
+  e.run(`
+    uploadedFilesMap = {1:uploadedFilesMap[1],2:null,3:null,4:null};
+    primarySlotKey = 1;
+    performUploads(uploadStep);
+  `);
+  e.advance(1000);
+  e.run(`uploads[0].ack = true; performUploads(uploadStep);`);
+  assert.equal(e.run('clicks.length'), 1);
+});
+
+test('required empty website slots block Continue after loaded files finish', () => {
+  const e = uploadFlowEngine();
+  e.run(`
+    uploadedFilesMap = {1:uploadedFilesMap[1],2:null,3:null,4:null};
+    primarySlotKey = 1;
+    uploads[1].required = true;
+    performUploads(uploadStep);
+  `);
+  e.advance(1000);
+  e.run(`uploads[0].ack = true; performUploads(uploadStep);`);
+  assert.equal(e.run('clicks.length'), 0);
+});
+
+test('mission remains unchanged while an enabled available IVAC center is selected', () => {
+  const e = engine();
+  e.run(`
+    var placeholder = {value:'',textContent:'Select center',disabled:false};
+    var disabled = {value:'closed',textContent:'Unavailable',disabled:true};
+    var available = {value:'open',textContent:'Available IVAC',disabled:false};
+    var mission = {value:'already-selected',selectedIndex:0,options:[{value:'already-selected',textContent:'Existing Mission'}]};
+    var center = {value:'',selectedIndex:0,options:[placeholder,disabled,available]};
+    first = selector => selector===PAGE.mission ? mission : selector===PAGE.center ? center : null;
+    setValue = (el,value) => {el.value=value;return true;};
+    var missionStep = newStep(sample('mission'));
+    performMissionSelection(missionStep);
+  `);
+  assert.equal(e.run('mission.value'), 'already-selected');
+  assert.equal(e.run('center.value'), 'open');
+});
+
+test('mission selection waits while the center dropdown has no available options', () => {
+  const e = engine();
+  e.run(`
+    var center = {value:'',selectedIndex:0,options:[{value:'',textContent:'Select center'}]};
+    first = selector => selector===PAGE.center ? center : null;
+    setValue = () => clicks.push('selected');
+    performMissionSelection(newStep(sample('mission')));
+  `);
+  assert.equal(e.run('clicks.length'), 0);
 });

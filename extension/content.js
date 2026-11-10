@@ -2,7 +2,8 @@
 // Used by the complete Manifest V3 extension and as a drop-in content-script update.
 let automatorInterval = null;
 let isRunning = false;
-let uploadedFilesMap = { 1: null, 2: null, 3: null };
+const FILE_SLOTS = [1, 2, 3, 4];
+let uploadedFilesMap = { 1: null, 2: null, 3: null, 4: null };
 let primarySlotKey = null;
 let storageGeneration = 0;
 let resetInProgress = false;
@@ -14,6 +15,7 @@ let otpRequestVersion = 0;
 const trackerHistory = [];
 let cleanupPending = false;
 const TRACKER_STEPS = [
+  { kind: 'login', key: null, title: 'Open sign-in page' },
   { kind: 'signIn', key: 'signIn', id: 'step-sign-in', title: 'Sign in' },
   { kind: 'otp', key: 'otpVerified', id: 'step-otp', title: 'Verify OTP' },
   { kind: 'popups', key: 'popupsCleaned', id: 'step-popups', title: 'Clear popup' },
@@ -73,9 +75,9 @@ function createFloatingPanel() {
     if (result.primarySlot) primarySlotKey = result.primarySlot;
 
     if (result.savedFilesMap) {
-      if (result.savedFilesMap[1]) uploadedFilesMap[1] = base64ToFile(result.savedFilesMap[1]);
-      if (result.savedFilesMap[2]) uploadedFilesMap[2] = base64ToFile(result.savedFilesMap[2]);
-      if (result.savedFilesMap[3]) uploadedFilesMap[3] = base64ToFile(result.savedFilesMap[3]);
+      FILE_SLOTS.forEach(slot => {
+        if (result.savedFilesMap[slot]) uploadedFilesMap[slot] = base64ToFile(result.savedFilesMap[slot]);
+      });
     }
 
     const panelHTML = `
@@ -94,7 +96,7 @@ function createFloatingPanel() {
           <div style="display: flex; align-items: center; gap: 8px;">
             <span style="background: #ffcc00; width: 8px; height: 8px; border-radius: 50%;"></span>
             <span style="font-weight: bold; font-size: 13px; letter-spacing: 0.5px;">Visa Automator</span>
-            <span style="font-size: 9px; background: #ffcc0022; color: #ffcc00; padding: 2px 6px; border-radius: 4px;">PRO 1.4</span>
+            <span style="font-size: 9px; background: #ffcc0022; color: #ffcc00; padding: 2px 6px; border-radius: 4px;">PRO 1.5</span>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
             <button id="reset-panel" title="Stop automation and erase all saved extension data" style="background: #34202a; border: 1px solid #774052; color: #ffb4be; padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 9px;">RESET</button>
@@ -167,7 +169,7 @@ function createFloatingPanel() {
             <div style="background: #13141d; padding: 8px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #1f2030;">
               <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: #888; margin-bottom: 6px;">
                 <span>WEBFILES (Click slot to upload, Star for Primary)</span>
-                <span id="webfile-status-count" style="color: #00ff88;">0 / 3</span>
+                <span id="webfile-status-count" style="color: #00ff88;">0 / 4</span>
               </div>
               
               <div style="display: flex; gap: 6px; margin-bottom: 6px;">
@@ -183,11 +185,16 @@ function createFloatingPanel() {
                   <button class="webfile-slot-btn" data-slot="3" style="background: ${uploadedFilesMap[3] ? '#00b359' : '#161722'}; border: 1px solid #28293d; color: #aaa; padding: 6px; border-radius: 6px; font-size: 11px; font-weight: bold; cursor: pointer;">3 ${primarySlotKey == 3 ? '[P]' : ''}</button>
                   <button class="primary-toggle-btn" data-slot="3" style="background: ${primarySlotKey == 3 ? '#00b35922' : '#161722'}; color: ${primarySlotKey == 3 ? '#00ff88' : '#666'}; border: none; font-size: 8px; padding: 2px; border-radius: 3px; cursor: pointer;">${primarySlotKey == 3 ? '★ Primary' : 'Make Primary'}</button>
                 </div>
+                <div style="flex: 1; display: flex; flex-direction: column; gap: 2px;">
+                  <button class="webfile-slot-btn" data-slot="4" style="background: ${uploadedFilesMap[4] ? '#00b359' : '#161722'}; border: 1px solid #28293d; color: #aaa; padding: 6px; border-radius: 6px; font-size: 11px; font-weight: bold; cursor: pointer;">4 ${primarySlotKey == 4 ? '[P]' : ''}</button>
+                  <button class="primary-toggle-btn" data-slot="4" style="background: ${primarySlotKey == 4 ? '#00b35922' : '#161722'}; color: ${primarySlotKey == 4 ? '#00ff88' : '#666'}; border: none; font-size: 8px; padding: 2px; border-radius: 3px; cursor: pointer;">${primarySlotKey == 4 ? '★ Primary' : 'Make Primary'}</button>
+                </div>
               </div>
 
               <input type="file" id="slot-file-1" class="hidden-slot-input" data-slot="1" accept=".pdf" style="display: none;" />
               <input type="file" id="slot-file-2" class="hidden-slot-input" data-slot="2" accept=".pdf" style="display: none;" />
               <input type="file" id="slot-file-3" class="hidden-slot-input" data-slot="3" accept=".pdf" style="display: none;" />
+              <input type="file" id="slot-file-4" class="hidden-slot-input" data-slot="4" accept=".pdf" style="display: none;" />
               
               <div id="slot-names-display" style="font-size: 9px; color: #666; text-align: center; margin-top: 4px;">Primary file will be uploaded first automatically.</div>
             </div>
@@ -196,7 +203,7 @@ function createFloatingPanel() {
             <div style="background: #13141d; padding: 10px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #1f2030;">
               <div style="font-size: 10px; font-weight: bold; color: #00ff88; margin-bottom: 6px; display: flex; justify-content: space-between;">
                 <span>WORKFLOW PROGRESS</span>
-                <span id="manual-file-quick-status" style="color: #aaa; font-weight: normal;">Files: 0/3</span>
+                <span id="manual-file-quick-status" style="color: #aaa; font-weight: normal;">Files: 0/4</span>
               </div>
               
               <div id="workflow-status" role="status" aria-live="polite" aria-atomic="true" aria-busy="false" style="display: flex; align-items: center; gap: 8px; padding: 8px; background: #161722; border-radius: 6px;">
@@ -401,6 +408,10 @@ function createFloatingPanel() {
 
         const activeSlotBtn = document.querySelector(`.webfile-slot-btn[data-slot="${slotNum}"]`);
         if (uploadedFilesMap[slotNum]) activeSlotBtn.style.background = '#00b359';
+        document.querySelectorAll('.webfile-slot-btn').forEach(b => {
+          b.textContent = `${b.dataset.slot}${b.dataset.slot == primarySlotKey ? ' [P]' : ''}`;
+        });
+        updateSlotDisplayStatus();
 
         logMessage(`Slot ${slotNum} set as Primary File.`);
       });
@@ -467,21 +478,18 @@ function createFloatingPanel() {
 }
 
 function updateSlotDisplayStatus() {
-  let count = 0;
-  if (uploadedFilesMap[1]) count++;
-  if (uploadedFilesMap[2]) count++;
-  if (uploadedFilesMap[3]) count++;
+  const count = FILE_SLOTS.filter(slot => uploadedFilesMap[slot]).length;
 
   const countLbl = document.getElementById('webfile-status-count');
-  if (countLbl) countLbl.innerText = `${count} / 3`;
+  if (countLbl) countLbl.innerText = `${count} / 4`;
 
   const quickStatus = document.getElementById('manual-file-quick-status');
-  if (quickStatus) quickStatus.innerText = `Files: ${count}/3`;
+  if (quickStatus) quickStatus.innerText = `Files: ${count}/4`;
 
   const statusDesc = document.getElementById('slot-names-display');
   if (statusDesc) {
     let names = [];
-    [1, 2, 3].forEach(k => {
+    FILE_SLOTS.forEach(k => {
       if (uploadedFilesMap[k]) {
         let label = k == primarySlotKey ? `[Primary: ${uploadedFilesMap[k].name}]` : `${uploadedFilesMap[k].name}`;
         names.push(label);
@@ -552,7 +560,7 @@ function resetPanelState() {
   trackerHistory.length = 0;
   trackerNextComplete = false;
   for (const key of Object.keys(stepStatus)) stepStatus[key] = false;
-  uploadedFilesMap = { 1: null, 2: null, 3: null };
+  uploadedFilesMap = { 1: null, 2: null, 3: null, 4: null };
   primarySlotKey = null;
   attemptCount = 0;
   currentStageDetail = '';
@@ -624,7 +632,7 @@ function startAutomation() {
     attributeFilter: ['class', 'style', 'hidden', 'disabled', 'aria-busy', 'aria-checked', 'data-status']
   });
   updateStepTrackerUI();
-  scheduleWorkflow(0);
+  executeWorkflowSteps();
 }
 
 function stopAutomation() {
@@ -809,6 +817,7 @@ const PAGE = {
   phone: 'input[type="tel"], input[placeholder*="01"], input[name="username"]',
   mission: 'select[name*="mission" i], select#mission, select.mission-select',
   center: 'select[name*="center" i], select#center, select.center-select',
+  missionOK: '[data-mission-status="confirmed"], [data-center-status="confirmed"], #mission-success, .mission-success',
   dates: '.calendar-day.available:not(.disabled), td.available:not(.disabled), .calendar .day.available, .p-datepicker-calendar td:not(.p-disabled) span:not(.p-disabled)',
   busy: '[aria-busy="true"], [role="progressbar"], .loading-spinner, .spinner-border, .ant-spin-spinning, [data-status="uploading"]',
   uploadOK: '[data-upload-status="success"], [data-status="uploaded"], .upload-success, .ant-upload-list-item-done',
@@ -921,7 +930,7 @@ function fileInputs(root = document) {
   // Real upload inputs are often hidden behind labels. Exclude panel inputs,
   // disabled fields and inputs in hidden/inactive forms, not just hidden inputs.
   return Array.from(root.querySelectorAll('input[type="file"]')).filter(el =>
-    !inPanel(el) && !el.disabled && !el.closest('[inert], [aria-hidden="true"]') &&
+    !inPanel(el) && !el.closest('[inert], [aria-hidden="true"]') &&
     (visible(el) || visible(el.parentElement)));
 }
 function captchaPending(root = document) {
@@ -940,13 +949,16 @@ function detectSteps() {
   add('signIn', first('input[type="password"]') || all(PAGE.phone).find(el => !el.matches(PAGE.otp)));
   const uploads = fileInputs();
   add('upload', uploads[0] || button(/^confirm all information is correct/i));
-  add('mission', first(PAGE.mission) || first(PAGE.center));
+  const missionControl = first(PAGE.mission) || first(PAGE.center);
+  if (missionControl && !first(PAGE.missionOK, scopeOf(missionControl))) add('mission', missionControl);
   add('appointment', button(/^take your appointment\b/i));
   add('booking', first(PAGE.dates) || button(/^continue booking$/i));
+  if (!steps.length) add('next', button(/^next$/i));
+  if (!steps.length) add('login', button(/^sign in(?: now)?$|^log in$|^login$/i));
   for (const dialog of all(PAGE.dialogs).reverse()) {
     if (!hasWorkflowControls(dialog)) {
       const next = button(/^next$/i, dialog);
-      if (next) { steps.unshift({ kind: 'next', el: next, root: dialog }); break; }
+      if (next) { steps.unshift({ kind: 'next', el: next, root: dialog, interruption: true }); break; }
     }
   }
   // A visible modal is the active page context, not the controls underneath it.
@@ -989,6 +1001,10 @@ function performStep(step) {
   if (Date.now() < step.nextTry) return;
   const root = step.root;
   switch (step.kind) {
+    case 'login':
+      updateStage('Open sign-in', '5%', 'Opening the sign-in form before filling credentials.');
+      submitStep(step, step.el);
+      break;
     case 'signIn': {
       updateStage('Sign in', '15%', 'Waiting for sign-in acceptance.');
       const phone = first(PAGE.phone, root) || first(PAGE.phone);
@@ -1012,25 +1028,14 @@ function performStep(step) {
       submitStep(step, step.el);
       break;
     case 'next':
-      updateStage('Additional step', '45%', 'Continuing the informational popup.');
+      updateStage('Next', '55%', 'Opening the next page before document upload.');
       submitStep(step, step.el);
       break;
     case 'upload':
       performUploads(step);
       break;
     case 'mission': {
-      updateStage('Mission / center', '85%', 'Waiting for selection acceptance.');
-      let changed = false;
-      for (const [selector, id] of [[PAGE.mission, 'config-mission'], [PAGE.center, 'config-center']]) {
-        const select = first(selector, root);
-        if (!select) continue;
-        const wanted = document.getElementById(id)?.value;
-        const option = Array.from(select.options).find(o => !o.disabled && (o.value === wanted || o.textContent.trim() === wanted));
-        if (!option) return; // Dependent options may still be loading.
-        changed = setValue(select, option.value) || changed;
-      }
-      if (changed) { step.nextTry = Date.now() + 700; return; }
-      submitStep(step, button(/^confirm mission(?: & ivac center)?$/i, root));
+      performMissionSelection(step);
       break;
     }
     case 'booking': {
@@ -1066,47 +1071,125 @@ function uploadSucceeded(input) {
     // A bare check mark is accepted only in an upload's own status element.
     all('.upload-status, [data-upload-status], [role="status"]', root).some(el => /^[✓✔]$/.test(label(el)));
 }
-function performUploads(step) {
-  updateStage('Upload documents', '70%', 'Waiting for every upload to finish and be acknowledged.');
-  const inputs = fileInputs(step.root);
-  const files = [primarySlotKey, ...[1, 2, 3].filter(k => k != primarySlotKey)]
+function orderedUploadFiles() {
+  return [primarySlotKey, ...FILE_SLOTS.filter(k => k != primarySlotKey)]
     .map(k => uploadedFilesMap[k]).filter(Boolean);
-  if (!step.uploadState) step.uploadState = new WeakMap();
-  for (let i = 0; i < inputs.length; i++) {
-    const input = inputs[i];
-    if (uploadSucceeded(input)) continue;
-    const file = files[i];
-    if (!file && !input.files.length) {
-      updateStage('Upload documents', '70%', `Load the document for page upload ${i + 1} in the panel.`);
+}
+function uploadReceipt(input) {
+  return JSON.stringify([input.dataset.uploadStatus || '', all(PAGE.uploadOK, uploadScope(input))
+    .map(el => el.outerHTML || label(el))]);
+}
+function performUploads(step) {
+  updateStage('Upload documents', '70%', 'Waiting for the primary document before secondary uploads.');
+  const inputs = fileInputs(step.root);
+  if (primarySlotKey && !uploadedFilesMap[primarySlotKey]) {
+    updateStage('Upload documents', '70%', 'Load the selected primary document before uploading secondary files.');
+    return;
+  }
+  if (!step.uploadRecords) {
+    const files = orderedUploadFiles();
+    if (!files.length) {
+      updateStage('Upload documents', '70%', 'Load at least one document in the panel.');
+      return;
+    }
+    // Freeze the chosen order for this upload screen, including slot four.
+    step.uploadRecords = files.map(file => ({ file, done: false, attached: false, sentAt: 0 }));
+  }
+  for (let i = 0; i < step.uploadRecords.length; i++) {
+    const record = step.uploadRecords[i];
+    if (record.done) continue;
+    const input = inputs.length === 1 ? inputs[0] : inputs[i];
+    if (!input || input.disabled || input.matches?.(':disabled, [aria-disabled="true"]')) {
+      updateStage('Upload documents', '70%', `Waiting for document ${i + 1}'s upload field to become ready.`);
       return;
     }
     const local = uploadScope(input);
-    if (busy(local)) return;
-    const previous = step.uploadState.get(input) || 0;
+    if (busy(local) || captchaPending(local)) return;
+    const succeeded = uploadSucceeded(input);
+    const selected = input.files[0];
+    const matchesFile = selected && selected.name === record.file.name && selected.size === record.file.size;
+    // Existing selections are accepted only if the expected file is bound to a
+    // distinct input. A shared input's old green tick cannot confirm a new file.
+    if (!record.attached && matchesFile && succeeded && (i === 0 || inputs.length > 1)) {
+      record.done = true;
+      continue;
+    }
+    if (record.attached) {
+      if (!succeeded) record.sawPending = true;
+      if (succeeded && matchesFile && (record.sawPending || !record.wasAlreadySuccessful ||
+        uploadReceipt(input) !== record.receiptBeforeAttach)) {
+        record.done = true;
+        logMessage(`Document ${i + 1} upload acknowledged.`);
+        continue;
+      }
+    }
     const failed = !!first(PAGE.uploadError, local);
-    // Do not replace selected files repeatedly while an uninstrumented upload
-    // may still be in flight. Retry only explicit errors, or an empty input.
-    if ((!input.files.length || failed) && file && Date.now() - previous >= 5000) {
+    if (!record.attached || (failed && Date.now() - record.sentAt >= 5000)) {
+      record.wasAlreadySuccessful = succeeded;
+      record.receiptBeforeAttach = uploadReceipt(input);
       const transfer = new DataTransfer();
-      transfer.items.add(file);
+      transfer.items.add(record.file);
       input.files = transfer.files;
-      step.uploadState.set(input, Date.now());
+      record.attached = true;
+      record.sentAt = Date.now();
+      record.sawPending = !succeeded;
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
-      step.nextTry = Date.now() + 1000;
-      logMessage(`Document ${i + 1} attached; waiting for server confirmation.`);
+      if (!uploadSucceeded(input) || busy(local)) record.sawPending = true;
+      step.nextTry = Date.now() + 700;
+      logMessage(`${i === 0 ? 'Primary' : 'Secondary'} document attached; waiting for server confirmation.`);
       return;
     }
-    // Some sites require Upload before displaying the verified check mark.
+    updateStage('Upload documents', '70%', `Waiting for document ${i + 1}/${step.uploadRecords.length} to be verified.`);
+    // Upload is not Continue: this starts server processing but never advances.
     submitStep(step, button(/^upload(?: file| document| all files| documents)?$/i, local) ||
       button(/^upload(?: file| document| all files| documents)?$/i, step.root));
     return;
   }
-  // No success is inferred from input.files or from clicking Upload.
-  if (inputs.length && !inputs.every(uploadSucceeded)) return;
-  const confirm = button(/^confirm all information is correct$/i, step.root);
-  if (confirm) submitStep(step, confirm);
-  // Stay locked here until the confirmed upload screen actually transitions.
+  if (busy(step.root) || captchaPending(step.root)) return;
+  // Optional empty website slots do not require extra documents; required slots do.
+  if (inputs.some(input => input.required && !uploadSucceeded(input))) {
+    updateStage('Upload documents', '75%', 'A required website upload still needs confirmation.');
+    return;
+  }
+  updateStage('Upload documents', '80%', 'All loaded documents are acknowledged. Continuing…');
+  const confirm = all('button, a[href], input[type="submit"], [role="button"]', step.root).find(el =>
+    enabled(el) && /^(confirm all information is correct|continue|continue to (?!payment\b|checkout\b).+|next|proceed)$/i.test(label(el)));
+  if (confirm && submitStep(step, confirm)) step.uploadContinueSent = true;
+  // Completion remains locked until a stable, recognized next page appears.
+}
+function usableOption(option) {
+  return !!option && !option.disabled && !option.parentElement?.disabled &&
+    !!String(option.value).trim() && !/^(select|choose|loading|no .+available|--)/i.test(option.textContent.trim());
+}
+function performMissionSelection(step) {
+  updateStage('Mission / center', '90%', 'Keeping the selected mission and choosing an available IVAC center.');
+  if (first(PAGE.missionOK, step.root)) {
+    status('mission', true);
+    activeStep = null;
+    return;
+  }
+  const mission = first(PAGE.mission, step.root);
+  if (mission && !usableOption(mission.options[mission.selectedIndex])) {
+    updateStage('Mission / center', '85%', 'Waiting for the page to select its mission.');
+    return;
+  }
+  const center = first(PAGE.center, step.root);
+  if (!center || center.disabled || center.matches?.(':disabled, [aria-disabled="true"]')) return;
+  const available = Array.from(center.options).filter(usableOption);
+  if (!available.length) {
+    updateStage('Mission / center', '85%', 'Waiting for an available IVAC center to load.');
+    return;
+  }
+  if (!usableOption(center.options[center.selectedIndex])) {
+    const wanted = document.getElementById('config-center')?.value;
+    const option = available.find(o => o.value === wanted || o.textContent.trim() === wanted) || available[0];
+    setValue(center, option.value);
+    step.submitted = true; // onchange may itself navigate to the next screen.
+    step.nextTry = Date.now() + 700;
+    return;
+  }
+  submitStep(step, button(/^confirm mission(?: & ivac center)?$|^continue$|^next$|^proceed$/i, step.root));
 }
 function runManualStep(kind) {
   if (resetInProgress) return false;
@@ -1127,7 +1210,7 @@ function executeWorkflowSteps(requestedKind = null) {
     const candidates = detectSteps();
     // An informational Next popup may interrupt a pending request. Continue it
     // without abandoning the original step or declaring that step successful.
-    const nextPopup = candidates.find(s => s.kind === 'next');
+    const nextPopup = candidates.find(s => s.kind === 'next' && s.interruption);
     if (nextPopup && activeStep && activeStep.kind !== 'next') {
       if (!popupContinuation || popupContinuation.el !== nextPopup.el) popupContinuation = newStep(nextPopup);
       performStep(popupContinuation);
@@ -1141,6 +1224,10 @@ function executeWorkflowSteps(requestedKind = null) {
     popupContinuation = null;
     if (activeStep?.kind === 'otp' && first(PAGE.otpOK, activeStep.root)) {
       status('otp', true);
+      activeStep = null;
+    }
+    if (activeStep?.kind === 'mission' && first(PAGE.missionOK)) {
+      status('mission', true);
       activeStep = null;
     }
     if (activeStep) {
@@ -1161,7 +1248,9 @@ function executeWorkflowSteps(requestedKind = null) {
         // A transiently missing input is NOT success. Require an actual submitted
         // action, another recognized step, no blockers, and a stable transition.
         const manualOTPTransition = activeStep.kind === 'otp' && otpSession?.manualPageInput;
-        if ((activeStep.submitted || manualOTPTransition) && other && !blocked) {
+        const uploadsConfirmed = activeStep.kind !== 'upload' ||
+          (activeStep.uploadContinueSent && activeStep.uploadRecords?.every(record => record.done));
+        if ((activeStep.submitted || manualOTPTransition) && uploadsConfirmed && other && !blocked) {
           if (!activeStep.absentSince) activeStep.absentSince = Date.now();
           if (Date.now() - activeStep.absentSince >= 1200) {
             // Leaving the calendar is not proof that a booking was confirmed.
