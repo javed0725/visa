@@ -683,3 +683,131 @@ test('mission selection waits while the center dropdown has no available options
   `);
   assert.equal(e.run('clicks.length'), 0);
 });
+
+function calendarEngine() {
+  const e = engine();
+  e.run(`
+    var dateNodes = [1,2,3,4,5].map(n => ({
+      id:'date-'+n, textContent:String(n),
+      getAttribute:name=>name==='data-date'?'2026-12-'+String(n).padStart(2,'0'):null,
+      closest:()=>null
+    }));
+    var bookingButton = {id:'continue-booking',disabled:false};
+    var calendarClicks = [];
+    all = selector => selector===PAGE.dates ? dateNodes : [];
+    enabled = el => !!el && !el.disabled;
+    button = () => bookingButton;
+    click = el => {calendarClicks.push({id:el.id,at:Date.now()});return true;};
+    var bookingStep = newStep(sample('booking'));
+  `);
+  return e;
+}
+
+test('middle-first ordering covers every date before repeating', () => {
+  const e = engine();
+  assert.equal(e.run('JSON.stringify(middleOut([1,2,3,4,5]))'), '[3,4,2,5,1]');
+  assert.equal(e.run('JSON.stringify(middleOut([1,2,3,4]))'), '[2,3,1,4]');
+  assert.equal(e.run('JSON.stringify(middleOut([]))'), '[]');
+});
+
+test('calendar starts in the middle and clicks Continue only once per attempt', () => {
+  const e = calendarEngine();
+  e.run('performCalendarSearch(bookingStep);');
+  assert.equal(e.run('calendarClicks[0].id'), 'date-3');
+  e.advance(500);
+  e.run('performCalendarSearch(bookingStep); performCalendarSearch(bookingStep);');
+  assert.equal(e.run('calendarClicks.length'), 2);
+  assert.equal(e.run('calendarClicks[1].id'), 'continue-booking');
+});
+
+test('failed attempt waits 20 seconds after Continue before selecting another date', () => {
+  const e = calendarEngine();
+  e.run('performCalendarSearch(bookingStep);');
+  e.advance(500);
+  e.run('performCalendarSearch(bookingStep);');
+  e.advance(19999);
+  e.run('performCalendarSearch(bookingStep);');
+  assert.equal(e.run('calendarClicks.length'), 2);
+  e.advance(1);
+  e.run('performCalendarSearch(bookingStep);');
+  assert.equal(e.run('calendarClicks[2].id'), 'date-4');
+  assert.equal(e.run('calendarClicks[2].at-calendarClicks[1].at'), 20000);
+});
+
+test('calendar cycles through all middle-out dates and then repeats persistently', () => {
+  const e = calendarEngine();
+  for (let i = 0; i < 6; i++) {
+    e.run('performCalendarSearch(bookingStep);');
+    e.advance(500);
+    e.run('performCalendarSearch(bookingStep);');
+    e.advance(20000);
+  }
+  assert.equal(e.run(`calendarClicks.filter(c=>c.id!=='continue-booking').map(c=>c.id).join(',')`),
+    'date-3,date-4,date-2,date-5,date-1,date-3');
+  assert.equal(e.run('bookingStep.calendar.cycle'), 2);
+});
+
+test('reload recovery preserves retry pacing and moves to an untried date', () => {
+  const e = calendarEngine();
+  e.run('performCalendarSearch(bookingStep); bookingStep = newStep(sample("booking")); performCalendarSearch(bookingStep);');
+  assert.equal(e.run('calendarClicks.length'), 1);
+  e.advance(20000);
+  e.run('performCalendarSearch(bookingStep);');
+  assert.equal(e.run('calendarClicks[1].id'), 'date-4');
+});
+
+test('empty and disabled date lists do not fabricate a booking attempt', () => {
+  const e = calendarEngine();
+  e.run('dateNodes.forEach(el=>el.disabled=true); isRunning=true; performCalendarSearch(bookingStep);');
+  assert.equal(e.run('calendarClicks.length'), 0);
+  assert.equal(e.run('isRunning'), true);
+  assert.equal(e.run('stepStatus.slotBooked'), false);
+});
+
+test('Save and Continue is recognized after preserving the selected mission and center', () => {
+  const e = engine();
+  e.run(`
+    var mission = {selectedIndex:0,options:[{value:'existing',textContent:'Existing mission'}]};
+    var center = {selectedIndex:0,options:[{value:'open',textContent:'Available IVAC'}]};
+    first = selector => selector===PAGE.mission?mission:selector===PAGE.center?center:null;
+    button = pattern => pattern.test('Save and Continue') ? {} : null;
+    click = () => {clicks.push('save-and-continue');return true;};
+    performMissionSelection(newStep(sample('mission')));
+  `);
+  assert.equal(e.run('clicks.join(",")'), 'save-and-continue');
+});
+
+test('payment detection stops before cleaning dialogs or clicking any final actions', () => {
+  const e = calendarEngine();
+  e.run(`
+    isRunning = true;
+    activeStep = bookingStep;
+    first = selector => selector===PAGE.payment ? {} : null;
+    executePopupCleanup = () => {throw Error('Must not dismiss a payment dialog');};
+    executeWorkflowSteps();
+  `);
+  assert.equal(e.run('isRunning'), false);
+  assert.equal(e.run('stepStatus.paymentReached'), true);
+  assert.equal(e.run('stepStatus.slotBooked'), false);
+  assert.equal(e.run('calendarClicks.length'), 0);
+});
+
+test('payment route is detected even before its form finishes rendering', () => {
+  const e = engine();
+  e.run(`window.location.pathname='/appointment/payment';`);
+  assert.equal(e.run('paymentStageReached()'), true);
+});
+
+test('payment handoff has a clear final status with no working spinner', () => {
+  const e = trackerEngine();
+  e.run(`stepStatus.paymentReached=true; updateStepTrackerUI();`);
+  assert.equal(e.run(`nodes['workflow-title'].textContent`), 'Payment / confirmation reached');
+  assert.equal(e.run(`nodes['workflow-indicator'].className`), '');
+  assert.equal(e.run(`nodes['workflow-indicator'].textContent`), '✓');
+});
+
+test('a form that posts to payment is not proof that the payment page was reached', () => {
+  const e = engine();
+  e.run(`first = selector => selector.includes('form[action') ? {} : null;`);
+  assert.equal(e.run('paymentStageReached()'), false);
+});

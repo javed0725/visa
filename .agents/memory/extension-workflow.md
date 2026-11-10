@@ -46,10 +46,20 @@ verification while also rejecting premature automation stops.
 **How to apply:** Keep detection persistent, not submission. Never treat a
 Verify click as success or overwrite an in-progress manual entry.
 
-On the final Mission/IVAC page, the user says the mission is already selected;
+On the Mission/IVAC page, the user says the mission is already selected;
 the automator should select an available IVAC center without changing that mission.
 
 **Why:** The user explicitly described this page behavior and requested selecting
 the available center, not replacing the mission using panel configuration.
 
 **How to apply:** Preserve the page's mission and wait for enabled center options.
+
+The user's requested continuation is Save and Continue → calendar dates chosen
+from the middle, with a 20-second delay between failed attempts, until payment.
+
+**Why:** The user added this sequence explicitly, including continuous date
+rotation rather than repeatedly trying one date.
+
+**How to apply:** Keep automatic calendar retries separate from OTP's
+single-attempt policy. Stop at payment/confirmation; payment and final
+confirmation remain manual.

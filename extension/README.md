@@ -70,7 +70,8 @@ code, but never automatically retries the same code.
 - Start checks the page immediately. A landing-page Sign In link is opened when
   the credentials form is not yet visible; saved phone/password are then filled.
 - The normal flow is Sign In → OTP → Take Your Appointment → Next → documents →
-  Continue → Mission/IVAC. Detection can also resume at a later visible screen.
+  Continue → Mission/IVAC → Save and Continue → calendar → payment/confirmation.
+  Detection can also resume at a later visible screen.
 - Four document slots are available, including file persistence and RESET.
   The selected primary document is always acknowledged before any secondary
   document is attached. If no primary is selected, the first loaded slot is used
@@ -87,6 +88,14 @@ code, but never automatically retries the same code.
   IVAC options, keeps an existing valid center or selects a preferred available
   center (otherwise the first enabled center), then uses the page's continuation
   control. An unavailable configured preference does not block selection.
+- The calendar scans clickable dates in middle-first order: for five dates,
+  positions 3, 4, 2, 5, 1, then repeats. Disabled dates are excluded.
+- Each attempt selects a date and clicks Continue Booking once. If the page
+  stays on the calendar, another date is tried after at least **20 seconds**.
+  A visible countdown shows the wait; retry position and timing survive reloads.
+- Automation stops when a payment/confirmation page is detected. It does **not**
+  click Pay, purchase, or final-confirm controls. Reaching payment does not mark
+  an appointment as paid or booked.
 
 - The panel is 320px wide (previously 390px). Fonts, button labels, padding and
   spacing are scaled down together; the content scrolls on short screens.
@@ -136,7 +145,9 @@ An inaccessible CAPTCHA that exposes no verified response will require
 site-specific integration or manual continuation, not a guessed success state.
 
 Booking/payment final confirmation remains manual. Clicking Continue Booking
-does not mark an appointment booked.
+does not mark an appointment booked. Payment is recognized by explicit page
+markers, a payment/checkout/confirmation URL path, or a matching main heading.
+Adjust `PAGE.payment` if the site's markup differs.
 
 ## Site-specific selectors
 

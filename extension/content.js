@@ -11,6 +11,7 @@ let currentStageDetail = '';
 let panelCreating = false;
 let otpSession = null;
 let otpRequestVersion = 0;
+let calendarResume = null;
 // Visual history follows observed actions, never a presumed serial sequence.
 const trackerHistory = [];
 let cleanupPending = false;
@@ -34,7 +35,8 @@ let stepStatus = {
   takeAppointmentClicked: false,
   filesUploaded: false,
   missionSelected: false,
-  slotBooked: false
+  slotBooked: false,
+  paymentReached: false
 };
 
 // Helper: Convert File to Base64
@@ -66,13 +68,14 @@ function createFloatingPanel() {
   panelCreating = true;
   const generation = storageGeneration;
 
-  chrome.storage.local.get(['panelPos', 'savedPhone', 'savedPass', 'primarySlot', 'savedMission', 'savedCenter', 'savedFilesMap', 'automatorRunning'], async (result) => {
+  chrome.storage.local.get(['panelPos', 'savedPhone', 'savedPass', 'primarySlot', 'savedMission', 'savedCenter', 'savedFilesMap', 'automatorRunning', 'calendarRetry'], async (result) => {
     panelCreating = false;
     if (generation !== storageGeneration || resetInProgress) return;
     const posX = result.panelPos?.x || '30px';
     const posY = result.panelPos?.y || '30px';
     const isRight = result.panelPos?.right !== undefined ? result.panelPos.right : '30px';
     if (result.primarySlot) primarySlotKey = result.primarySlot;
+    calendarResume = result.calendarRetry || null;
 
     if (result.savedFilesMap) {
       FILE_SLOTS.forEach(slot => {
@@ -96,7 +99,7 @@ function createFloatingPanel() {
           <div style="display: flex; align-items: center; gap: 8px;">
             <span style="background: #ffcc00; width: 8px; height: 8px; border-radius: 50%;"></span>
             <span style="font-weight: bold; font-size: 13px; letter-spacing: 0.5px;">Visa Automator</span>
-            <span style="font-size: 9px; background: #ffcc0022; color: #ffcc00; padding: 2px 6px; border-radius: 4px;">PRO 1.5</span>
+            <span style="font-size: 9px; background: #ffcc0022; color: #ffcc00; padding: 2px 6px; border-radius: 4px;">PRO 1.6</span>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
             <button id="reset-panel" title="Stop automation and erase all saved extension data" style="background: #34202a; border: 1px solid #774052; color: #ffb4be; padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 9px;">RESET</button>
@@ -508,9 +511,9 @@ function updateStepTrackerUI() {
     const item = TRACKER_STEPS.find(s => s.kind === kind);
     return item?.key ? stepStatus[item.key] : kind === 'next' && trackerNextComplete;
   });
-  const complete = !current && !!last;
+  const complete = stepStatus.paymentReached || (!current && !!last);
   const working = isRunning && !resetInProgress;
-  const title = resetInProgress ? 'Resetting…' : step?.title ||
+  const title = resetInProgress ? 'Resetting…' : stepStatus.paymentReached ? 'Payment / confirmation reached' : step?.title ||
     (isRunning ? 'Detecting current step' : complete ? 'Step completed' : 'Ready');
   document.getElementById('workflow-title').textContent = title;
   document.getElementById('workflow-detail').textContent = resetInProgress ? 'Clearing all saved extension data…' :
@@ -555,6 +558,7 @@ function resetPanelState() {
   workflowObserver?.disconnect();
   workflowObserver = null;
   activeStep = null;
+  calendarResume = null;
   popupContinuation = null;
   cleanupPending = false;
   trackerHistory.length = 0;
@@ -823,6 +827,7 @@ const PAGE = {
   uploadOK: '[data-upload-status="success"], [data-status="uploaded"], .upload-success, .ant-upload-list-item-done',
   uploadError: '[data-upload-status="error"], [data-status="error"], .upload-error, .ant-upload-list-item-error',
   booked: '[data-booking-status="confirmed"], #booking-success, .booking-success',
+  payment: '[data-stage="payment"], [data-step="payment"], [data-stage="confirmation"], [data-payment-stage], #payment-page, #payment-form, .payment-page, #booking-confirmation, .booking-confirmation',
   captcha: '.g-recaptcha, .h-captcha, .cf-turnstile, iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="challenges.cloudflare.com"]',
   captchaToken: '[name="g-recaptcha-response"], [name="h-captcha-response"], [name="cf-turnstile-response"]'
 };
@@ -1039,18 +1044,7 @@ function performStep(step) {
       break;
     }
     case 'booking': {
-      updateStage('Book slot', '95%', 'Waiting for an explicit booking-success signal.');
-      if (first(PAGE.booked)) { status('booking', true); activeStep = null; return; }
-      const dates = all(PAGE.dates).filter(enabled);
-      const metric = document.getElementById('metric-dates');
-      if (metric) metric.innerText = dates.length;
-      const proceed = button(/^continue booking$/i, root);
-      if (proceed && (step.selectedDate || !dates.length)) submitStep(step, proceed);
-      else if (dates.length && !step.selectedDate && click(dates.at(-1))) {
-        step.selectedDate = true;
-        step.nextTry = Date.now() + 1000;
-      }
-      // No broad "proceed" / final-confirm matching: final booking/payment remains manual.
+      performCalendarSearch(step);
       break;
     }
   }
@@ -1189,7 +1183,112 @@ function performMissionSelection(step) {
     step.nextTry = Date.now() + 700;
     return;
   }
-  submitStep(step, button(/^confirm mission(?: & ivac center)?$|^continue$|^next$|^proceed$/i, step.root));
+  submitStep(step, button(/^save\s*(?:and|&)\s*continue$|^confirm mission(?: & ivac center)?$|^continue$|^next$|^proceed$/i, step.root));
+}
+const SLOT_RETRY_MS = 20000;
+function paymentStageReached() {
+  if (first(PAGE.payment) || first(PAGE.booked)) return true;
+  const route = window.location.pathname || '';
+  if (/\/(?:payment|checkout|confirmation|confirm-booking)(?:\/|$)/i.test(route)) return true;
+  return all('main h1, main h2, [role="main"] h1, [role="main"] h2').some(el =>
+    /^(payment(?: details| summary)?|booking confirmation|payment confirmation|confirm (?:your )?(?:appointment|booking))$/i.test(label(el)));
+}
+function finishAtPayment() {
+  // Reaching payment is not proof of a paid or confirmed appointment.
+  stepStatus.paymentReached = true;
+  if (first(PAGE.booked)) status('booking', true);
+  activeStep = null;
+  popupContinuation = null;
+  cleanupPending = false;
+  calendarResume = null;
+  chrome.storage.local.set({ calendarRetry: null });
+  stopAutomation();
+  updateStage('Payment / confirmation', '100%', 'Payment/confirmation reached. Automation stopped; review and continue manually.');
+  const next = document.getElementById('metric-next');
+  if (next) next.innerText = '-';
+  logMessage('Reached payment/confirmation. No payment or final-confirm button was clicked.');
+}
+function middleOut(items) {
+  const order = [];
+  const middle = Math.floor((items.length - 1) / 2);
+  for (let offset = 0; order.length < items.length; offset++) {
+    if (middle + offset < items.length) order.push(items[middle + offset]);
+    if (offset > 0 && middle - offset >= 0) order.push(items[middle - offset]);
+  }
+  return order;
+}
+function calendarDateKey(el) {
+  return el.getAttribute('data-date') || el.closest('[data-date]')?.getAttribute('data-date') || el.getAttribute('datetime') ||
+    el.getAttribute('aria-label') || el.getAttribute('title') ||
+    `${first('.calendar-title, .p-datepicker-title')?.textContent?.trim() || ''}:${label(el)}`;
+}
+function persistCalendarRetry(state) {
+  calendarResume = {
+    tried: [...state.tried], nextAttemptAt: state.nextAttemptAt,
+    attempts: state.attempts, cycle: state.cycle
+  };
+  chrome.storage.local.set({ calendarRetry: calendarResume });
+}
+function performCalendarSearch(step) {
+  if (paymentStageReached()) { finishAtPayment(); return; }
+  if (!step.calendar) step.calendar = {
+    tried: new Set(Array.isArray(calendarResume?.tried) ? calendarResume.tried : []),
+    nextAttemptAt: Math.min(Number(calendarResume?.nextAttemptAt) || 0, Date.now() + SLOT_RETRY_MS),
+    selected: null, continueSent: false, readyAt: 0,
+    attempts: Number(calendarResume?.attempts) || 0, cycle: Number(calendarResume?.cycle) || 1
+  };
+  const state = step.calendar;
+  const now = Date.now();
+  const available = all(PAGE.dates).filter(el => enabled(el) &&
+    !el.closest('.disabled, .p-disabled, [aria-disabled="true"]') && label(el));
+  const dates = [...new Map(available.map(el => [calendarDateKey(el), el])).values()];
+  const count = document.getElementById('metric-dates');
+  if (count) count.innerText = dates.length;
+  // Continue once for this selected date, not repeatedly during the wait.
+  if (state.selected && !state.continueSent && now >= state.readyAt) {
+    const proceed = button(/^continue booking$/i, step.root);
+    if (proceed && enabled(proceed) && click(proceed, SLOT_RETRY_MS)) {
+      state.continueSent = true;
+      step.submitted = true;
+      // At least 20 seconds after sending Continue, even if it was slow to enable.
+      state.nextAttemptAt = now + SLOT_RETRY_MS;
+      persistCalendarRetry(state);
+      logMessage('Continue Booking sent once. Waiting for payment/confirmation.');
+      return;
+    }
+  }
+  if (now < state.nextAttemptAt) {
+    const seconds = Math.ceil((state.nextAttemptAt - now) / 1000);
+    const metric = document.getElementById('metric-next');
+    if (metric) metric.innerText = `${seconds}s`;
+    updateStage('Calendar search', '95%', `Waiting for this date to proceed. Next date attempt in ${seconds}s.`);
+    return;
+  }
+  if (!dates.length) {
+    updateStage('Calendar search', '95%', 'No clickable dates are available. Continuing to watch the calendar.');
+    return;
+  }
+  const ordered = middleOut(dates);
+  let choice = ordered.find(el => !state.tried.has(calendarDateKey(el)));
+  if (!choice) {
+    state.tried.clear();
+    state.cycle++;
+    choice = ordered[0];
+  }
+  if (!click(choice)) return;
+  const key = calendarDateKey(choice);
+  state.tried.add(key);
+  state.selected = key;
+  state.continueSent = false;
+  state.attempts++;
+  state.readyAt = now + 500;
+  state.nextAttemptAt = now + SLOT_RETRY_MS;
+  persistCalendarRetry(state);
+  const cycle = document.getElementById('metric-cycle');
+  if (cycle) cycle.innerText = state.cycle;
+  const next = document.getElementById('metric-next');
+  if (next) next.innerText = '20s';
+  updateStage('Calendar search', '95%', `Selected an available date from the middle-first list (attempt ${state.attempts}).`);
 }
 function runManualStep(kind) {
   if (resetInProgress) return false;
@@ -1203,6 +1302,8 @@ function executeWorkflowSteps(requestedKind = null) {
   if (executing) return false;
   executing = true;
   try {
+    // Stop BEFORE cleaning dialogs or dispatching actions on a financial page.
+    if (paymentStageReached()) { finishAtPayment(); return true; }
     const metric = document.getElementById('metric-attempts');
     if (metric) metric.innerText = ++attemptCount;
     // Cleaner runs on EVERY scan, even while another step is pending.

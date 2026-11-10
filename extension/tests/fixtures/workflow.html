@@ -97,14 +97,14 @@
     };
     function showMission() {
       fixture.innerHTML = '<form id="mission-form"><select name="mission" id="mission"><option value="existing" selected>Existing mission</option><option value="other">Other mission</option></select>' +
-        '<select name="center" id="center" disabled><option value="">Select center</option></select><button>Confirm Mission &amp; IVAC Center</button></form>';
+        '<select name="center" id="center" disabled><option value="">Select center</option></select><button>Save and Continue</button></form>';
       fixture.querySelector('form').onsubmit = event => {
         event.preventDefault();
         window.confirmedMission = document.getElementById('mission').value;
         window.confirmedCenter = document.getElementById('center').value;
         centerConfirmed = true;
         flowEvents.push('center-confirmed');
-        fixture.innerHTML = '<div id="mission-success" data-center-status="confirmed">IVAC selection confirmed</div>';
+        showCalendar();
       };
     }
     window.loadCenters = () => {
@@ -112,6 +112,35 @@
       center.innerHTML = '<option value="">Select center</option><option value="closed" disabled>Closed IVAC</option><option value="open">Available IVAC</option>';
       center.disabled = false;
     };
+    window.dateSelections = [];
+    window.bookingAttempts = [];
+    window.paymentClicks = 0;
+    function showCalendar() {
+      fixture.innerHTML = '<form id="calendar-form"><div class="calendar">' +
+        [10,11,12,13,14].map(day => '<button type="button" class="calendar-day available" data-date="2026-12-' + day + '">' + day + '</button>').join('') +
+        '</div><button id="continue-booking" disabled>Continue Booking</button><p id="slot-result"></p></form>';
+      let selected = null;
+      fixture.querySelectorAll('[data-date]').forEach(date => {
+        date.onclick = () => {
+          selected = date.dataset.date;
+          dateSelections.push({ date:selected, at:Date.now() });
+          flowEvents.push('date:' + selected);
+          document.getElementById('continue-booking').disabled = false;
+        };
+      });
+      fixture.querySelector('form').onsubmit = event => {
+        event.preventDefault();
+        bookingAttempts.push({date:selected, at:Date.now()});
+        flowEvents.push('booking-attempt:' + selected);
+        if (bookingAttempts.length === 1) {
+          document.getElementById('slot-result').textContent = 'This date did not advance; try another date.';
+        } else {
+          fixture.innerHTML = '<section id="payment-page" data-stage="payment"><h1>Payment</h1><button id="pay-now">Pay now</button></section>';
+          document.getElementById('pay-now').onclick = () => paymentClicks++;
+        }
+      };
+    }
+    window.startMissionFixture = () => { showMission(); loadCenters(); };
     fixture.innerHTML = '<button id="landing-signin">Sign In</button>';
     fixture.querySelector('button').onclick = showLogin;
   </script>
