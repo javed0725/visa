@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Visa Automator Pro",
+  "version": "1.0",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "alarms",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://appointment.ivacbd.com/*",
+    "http://192.168.0.100:5000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://appointment.ivacbd.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "icons": {
+    "128": "icons/icon128.png"
+  }
+}

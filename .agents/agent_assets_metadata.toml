@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "oUV1lxSzmmvIoFedR2P7E"
+uri = "file://generated-artifacts/visa-automator-adaptive-update.zip"
+type = "unspecified"
+title = "Visa Automator Pro — Content Script Update"
+description = "Drop-in content.js replacement and installation instructions. Uses page-based detection, completion checks, popup handling and paced retries."
+logical_id = "33abce48-efb8-4743-a26a-a0936260a9d9"
+content_hash = "sha256:a3baad38515c6969965d9ae0b6dfc0a800ac5aa57840a254f11c0fb0aa7f67bd"
+size = 14491
+mtime_ms = 1794331378134
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c95153f8-4120-4f5d-9b29-b3fd42034cff/33abce48-efb8-4743-a26a-a0936260a9d9/73ac0b0b-69e6-4acd-9c2e-f3fcdb071ef7"
+storage_version_token = "1794331385332533"
+content_type = "application/octet-stream"

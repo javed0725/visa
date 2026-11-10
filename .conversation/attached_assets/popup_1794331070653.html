@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FormFlow</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <h1>FormFlow</h1>
+    <div class="pills">
+      <span id="statePill" class="pill">IDLE</span>
+      <span id="stagePill" class="pill muted">Stage: —</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>Actions</h2>
+    <div class="grid">
+      <button id="btnSignIn" class="primary">Sign In</button>
+      <button id="btnOtp">OTP Verify</button>
+      <button id="btnStage">Detect Stage</button>
+      <button id="btnScan">Scan Dates</button>
+      <button id="btnToken" class="wide">Fresh Token</button>
+    </div>
+    <input id="otpInput" inputmode="numeric" maxlength="8" placeholder="Enter OTP you received" />
+    <div class="row">
+      <label class="switch"><input type="checkbox" id="chkPolling" /> Auto-poll</label>
+      <span id="tokenInfo" class="muted small">Token: none</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Applicant documents (PDF)</h2>
+    <label class="drop">
+      <input type="file" id="fileInput" accept="application/pdf" multiple hidden />
+      <span>Click to add PDF files</span>
+    </label>
+    <ul id="docList"></ul>
+    <button id="btnAttach" class="wide">Attach to current page</button>
+  </section>
+
+  <section>
+    <h2>Settings</h2>
+    <div class="form">
+      <input id="cfgUser" placeholder="Username / email" autocomplete="off" />
+      <input id="cfgPass" type="password" placeholder="Password" autocomplete="off" />
+      <div class="row">
+        <label class="small">Poll every (min)</label>
+        <input id="cfgPoll" type="number" min="0.5" step="0.5" value="1" class="narrow" />
+      </div>
+      <label class="switch"><input type="checkbox" id="cfgAutoBook" /> Auto-select first date</label>
+      <label class="switch"><input type="checkbox" id="cfgAutoConfirm" /> Auto-click final confirm</label>
+      <details>
+        <summary>Selectors &amp; stages (JSON)</summary>
+        <textarea id="cfgJson" rows="12" spellcheck="false"></textarea>
+      </details>
+      <button id="btnSave" class="primary wide">Save settings</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Log</h2>
+    <div id="log" class="log"></div>
+  </section>
+
+  <script src="popup.js"></script>
+</body>
+</html>

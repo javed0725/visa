@@ -1,0 +1,1 @@
+- [Extension workflow boundaries](extension-workflow.md) — content-script-only update; preserve required dialogs and wait for evidence rather than guessing success.

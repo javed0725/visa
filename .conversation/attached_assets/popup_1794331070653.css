@@ -1,0 +1,43 @@
+:root {
+  --bg: #0f1218; --panel: #171b24; --border: #262c39; --text: #e6e9f0;
+  --muted: #8a93a6; --accent: #4f8cff; --ok: #3ecf8e; --warn: #f5a524; --err: #ef5b5b;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 14px; background: var(--bg); color: var(--text);
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+h1 { font-size: 16px; margin: 0; }
+h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; }
+section { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+.pills { display: flex; gap: 6px; }
+.pill { padding: 2px 8px; border-radius: 999px; background: #1f2a44; color: var(--accent); font-size: 11px; font-weight: 600; }
+.pill.muted { background: #222733; color: var(--muted); }
+.pill[data-state="LOGGING_IN"] { background: #3a2f12; color: var(--warn); }
+.pill[data-state="SCANNING"]   { background: #12303a; color: #4fd1e8; }
+.pill[data-state="BOOKING"]    { background: #123a27; color: var(--ok); }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+button { background: #222836; color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+  padding: 9px 10px; cursor: pointer; font: inherit; transition: background .15s, transform .05s; }
+button:hover { background: #2b3243; }
+button:active { transform: translateY(1px); }
+button:disabled { opacity: .5; cursor: progress; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary:hover { background: #3f78e6; }
+.wide { grid-column: 1 / -1; width: 100%; }
+input:not([type=checkbox]), textarea { width: 100%; background: #0f131b; color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font: inherit; margin-bottom: 8px; }
+input:focus, textarea:focus { outline: 1px solid var(--accent); }
+textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; resize: vertical; }
+.narrow { width: 80px !important; margin: 0 !important; }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.switch { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; cursor: pointer; }
+.muted { color: var(--muted); } .small { font-size: 11px; }
+.drop { display: block; border: 1px dashed var(--border); border-radius: 8px; padding: 14px; text-align: center; color: var(--muted); cursor: pointer; margin-bottom: 8px; }
+.drop:hover { border-color: var(--accent); color: var(--text); }
+#docList { list-style: none; margin: 0 0 8px; padding: 0; }
+#docList li { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: #0f131b; border-radius: 6px; margin-bottom: 4px; }
+#docList button { padding: 2px 8px; }
+details summary { cursor: pointer; color: var(--muted); margin-bottom: 8px; }
+.log { max-height: 160px; overflow: auto; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; }
+.log div { padding: 2px 0; border-bottom: 1px solid #1d2230; }
+.log .info { color: var(--muted); } .log .warn { color: var(--warn); } .log .error { color: var(--err); }
