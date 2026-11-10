@@ -28,13 +28,16 @@ site-specific evidence is unavailable.
 available. Do not broaden to arbitrary dialog buttons or infer upload success
 from a selected local file.
 
-The user uses a Termux Flask server, with MacroDroid forwarding incoming SMS to
-that server; the panel retrieves OTPs through the Chrome background script.
+The user now wants a direct Phone OTP Auto-Fill companion: native Android SMS
+filtering, Client Key pairing, and an HTTPS relay to the Chrome background worker,
+replacing Termux and MacroDroid.
 
-**Why:** The user explicitly asked to keep this integration, not replace it.
+**Why:** The user explicitly replaced their earlier instruction to keep Termux
+with a simpler Android companion flow.
 
-**How to apply:** Preserve the MacroDroid → Flask → Chrome background → panel
-workflow when changing OTP handling. Do not add an unrelated SMS provider.
+**How to apply:** Keep phone pairing and consented on-device SMS filtering as
+the source of OTPs. Do not restore the old LAN endpoint or substitute an unrelated
+SMS provider. Keep once-per-code submission and manual override intact.
 
 OTP is an exception to the general action retry policy: submit a received code
 once, then remain active while waiting for verification. Manual website OTP entry

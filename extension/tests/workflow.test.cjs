@@ -326,9 +326,11 @@ function backgroundEngine() {
   const store = { savedPhone: 'test-phone', savedPass: 'test-password', savedFilesMap: { 1: {} }, primarySlot: 2 };
   const events = [];
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../background.js'), 'utf8'), {
+    importScripts() {},
+    PhoneRelay: { serial: work => work(), reset: async () => {} },
     chrome: {
       action: { onClicked: { addListener() {} } },
-      runtime: { onMessage: { addListener(fn) { listener = fn; } } },
+      runtime: { getURL: file => `chrome-extension://test/${file}`, onMessage: { addListener(fn) { listener = fn; } } },
       tabs: {
         async query() { return [{ id: 1 }, { id: 2 }]; },
         async sendMessage(id, message) { events.push(`${id}:${message.type}`); }
@@ -417,7 +419,7 @@ test('OTP waits for an enabled verification button without consuming its attempt
   assert.equal(e.run('clicks.length'), 1);
 });
 
-test('automatic Termux fetching fills and verifies only once through background messaging', () => {
+test('automatic paired-phone fetching fills and verifies only once through background messaging', () => {
   const e = otpEngine();
   e.run(`isRunning = true; performOTP(activeStep); performOTP(activeStep);`);
   assert.equal(e.run('messages.length'), 1);
@@ -810,4 +812,13 @@ test('a form that posts to payment is not proof that the payment page was reache
   const e = engine();
   e.run(`first = selector => selector.includes('form[action') ? {} : null;`);
   assert.equal(e.run('paymentStageReached()'), false);
+});
+
+test('phone delivery is acknowledged after its code is submitted exactly once', () => {
+  const e=otpEngine();
+  e.run(`isRunning=true; performOTP(activeStep);
+    messages[0].callback({ok:true,data:{success:true,otp:'123456',messageId:'11111111-1111-4111-8111-111111111111'}});
+    performOTP(activeStep);performOTP(activeStep);`);
+  assert.equal(e.run('clicks.length'),1);
+  assert.equal(e.run(`messages.filter(item=>item.message.type==='PHONE_ACK_OTP').length`),1);
 });

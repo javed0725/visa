@@ -11,6 +11,85 @@ tags:
   - name: health
     description: Health operations
 paths:
+  /phone-otp/pairings:
+    post:
+      operationId: registerPhonePairing
+      summary: Create a single-use, ten-minute client key
+      responses:
+        "201":
+          description: Pairing credentials, returned once
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhonePairing"
+  /phone-otp/pair:
+    post:
+      operationId: pairPhone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PhonePairInput"
+      responses:
+        "200":
+          description: Phone-only write credential
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhoneDevice"
+  /phone-otp/pairing:
+    get:
+      operationId: getPhonePairing
+      security: [{ relayBearer: [] }]
+      responses:
+        "200":
+          description: Pairing and enabled status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhoneStatus"
+    patch:
+      operationId: updatePhonePairing
+      security: [{ relayBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PhonePreference"
+      responses:
+        "200":
+          description: Updated
+    delete:
+      operationId: revokePhonePairing
+      security: [{ relayBearer: [] }]
+      responses:
+        "204":
+          description: Both credentials revoked and queued OTP erased
+  /phone-otp/messages:
+    post:
+      operationId: sendPhoneOTP
+      security: [{ relayBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PhoneMessage"
+      responses:
+        "202":
+          description: OTP accepted or duplicate ignored
+    get:
+      operationId: fetchPhoneOTP
+      security: [{ relayBearer: [] }]
+      responses:
+        "200":
+          description: Latest unexpired OTP, or no code available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhoneDelivery"
   /healthz:
     get:
       operationId: healthCheck
@@ -25,7 +104,62 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 components:
+  securitySchemes:
+    relayBearer:
+      type: http
+      scheme: bearer
   schemas:
+    PhonePairing:
+      type: object
+      required: [clientKey, browserToken, pairExpiresAt, expiresAt]
+      properties:
+        clientKey: { type: string }
+        browserToken: { type: string }
+        pairExpiresAt: { type: number }
+        expiresAt: { type: number }
+    PhonePairInput:
+      type: object
+      additionalProperties: false
+      required: [clientKey]
+      properties:
+        clientKey: { type: string, pattern: "^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$" }
+    PhoneDevice:
+      type: object
+      required: [deviceToken, expiresAt]
+      properties:
+        deviceToken: { type: string }
+        expiresAt: { type: number }
+    PhoneStatus:
+      type: object
+      required: [paired, enabled, pairExpiresAt, expiresAt]
+      properties:
+        paired: { type: boolean }
+        enabled: { type: boolean }
+        pairExpiresAt: { type: number }
+        expiresAt: { type: number }
+    PhonePreference:
+      type: object
+      additionalProperties: false
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
+    PhoneMessage:
+      type: object
+      additionalProperties: false
+      required: [clientKey, otp, messageId, receivedAt]
+      properties:
+        clientKey: { type: string }
+        otp: { type: string, pattern: "^[0-9]{6}$" }
+        messageId: { type: string, format: uuid }
+        receivedAt: { type: number }
+    PhoneDelivery:
+      type: object
+      required: [success]
+      properties:
+        success: { type: boolean }
+        otp: { type: string }
+        messageId: { type: string }
+        receivedAt: { type: number }
     HealthStatus:
       type: object
       properties:

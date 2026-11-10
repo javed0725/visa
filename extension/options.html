@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phone OTP relay setup — Visa Automator</title>
+<style>
+:root{font:14px system-ui;color-scheme:dark;background:#0c0d12;color:#f0f1f5}
+body{max-width:440px;margin:60px auto;padding:24px}
+small,p{color:#a6abbd;line-height:1.6}h1{font-size:24px}
+label{display:block;margin:24px 0 8px}input{box-sizing:border-box;width:100%;padding:12px;background:#161722;border:1px solid #34384d;border-radius:8px;color:white}
+button{background:#00b96c;color:#07170f;border:0;border-radius:8px;padding:12px 18px;margin:18px 0;cursor:pointer;font-weight:700}
+#status{white-space:pre-wrap}code{color:#7ce7b3}
+</style></head><body>
+<small>VISA AUTOMATOR · PHONE COMPANION</small><h1>Connect your phone</h1>
+<p>Use the same HTTPS relay address here and in the Android companion app. No Termux or MacroDroid is needed.</p>
+<form id="relay-form"><label for="relay-url">Published relay address</label>
+<input id="relay-url" type="url" required placeholder="https://your-relay.example" autocomplete="off">
+<button type="submit">Save &amp; generate Client Key</button></form>
+<p id="status" role="status">Loading…</p>
+<p>Next: open the IVAC tab, enable <b>Phone OTP auto-fill</b>, copy the Client Key, and enter it on your phone. Pair within ten minutes. A paired session lasts 24 hours.</p>
+<p>Only matching six-digit visa OTPs are sent. Codes expire after two minutes. Changing this address unpairs the previous phone. The app needs a publicly reachable HTTPS relay; a private workspace preview is not a production relay.</p>
+<script src="options.js"></script></body></html>

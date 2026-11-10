@@ -19,12 +19,40 @@ content_type = "application/octet-stream"
 id = "wnAZdhknMiiz419EAa9iy"
 uri = "file://generated-artifacts/visa-automator-pro-chrome.zip"
 type = "unspecified"
-title = "Visa Automator Pro — Calendar Retry Workflow"
-description = "Complete Chrome extension version 1.6.0. Preserves the four-file workflow, adds Save and Continue, middle-first calendar selection, 20-second retries, and a safe stop at payment/confirmation."
+title = "Chrome extension — Visa Automator Pro 2.0"
+description = "Complete unpacked-loadable extension with Phone OTP auto-fill, Client Key pairing, copy/regenerate controls, and setup instructions."
 logical_id = "5750f4db-aae8-4962-835c-76fa63643f88"
-content_hash = "sha256:be9054e0def15d9927135f4067d8252231a9cc8f77c0efa85669da976ddfb4cb"
-size = 24629
-mtime_ms = 1794339207374
-storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c95153f8-4120-4f5d-9b29-b3fd42034cff/5750f4db-aae8-4962-835c-76fa63643f88/93962d08-f402-4c36-b568-ed8a553a244f"
-storage_version_token = "1794339218278310"
+content_hash = "sha256:0522695515bd48aca6c86778c9f068105e8399f04cb9500b5b9885933d688502"
+size = 34182
+mtime_ms = 1794342949893
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c95153f8-4120-4f5d-9b29-b3fd42034cff/5750f4db-aae8-4962-835c-76fa63643f88/be63db4d-6019-43d0-bad4-1b1611d3ff0e"
+storage_version_token = "1794342998602800"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "lG9PcULN9C2uiK4C5dBi9"
+uri = "file://generated-artifacts/visa-otp-companion-debug.apk"
+type = "unspecified"
+title = "Android companion — installable APK"
+description = "Debug-signed native Android 8+ app with pairing, consented SMS permissions, visa OTP filtering and encrypted background delivery."
+logical_id = "72f78d0c-c44e-4c02-9cef-4ebcf304a468"
+content_hash = "sha256:5ddf7f32611061755fb8f02eec9c8a1b5fa43547a00100aa7733b547b9593482"
+size = 24808
+mtime_ms = 1794342518493
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c95153f8-4120-4f5d-9b29-b3fd42034cff/72f78d0c-c44e-4c02-9cef-4ebcf304a468/64eaf92e-187b-4372-9940-460a44aa297b"
+storage_version_token = "1794342999936204"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "0OdWcB7vMH3yp3k2Xqnxi"
+uri = "file://generated-artifacts/visa-phone-otp-source.zip"
+type = "unspecified"
+title = "Complete source and setup guide"
+description = "Android project, Chrome extension, PostgreSQL-backed HTTPS relay, build files, tests and Phone OTP setup instructions. No credentials embedded."
+logical_id = "ee3c9165-fb2c-4083-808e-ed4795230929"
+content_hash = "sha256:38670d504c53a930fbf5650249dfb8528deb257e61e9fc3c0c86ff0fbb90caa1"
+size = 222513
+mtime_ms = 1794342950401
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c95153f8-4120-4f5d-9b29-b3fd42034cff/ee3c9165-fb2c-4083-808e-ed4795230929/a6d212e4-7cf5-4a63-b215-ff60c0551a09"
+storage_version_token = "1794343001201830"
 content_type = "application/octet-stream"

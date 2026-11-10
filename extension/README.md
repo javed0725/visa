@@ -14,8 +14,9 @@
 7. The floating panel appears on the appointment page. Enter credentials, load
    documents and press **Start**. **Stop** cancels observation and scheduled retries.
 
-This download is a complete Manifest V3 Chrome extension. It does not require
-the original extension folder, a build command, Node.js or a running Replit app.
+This download is a complete Manifest V3 Chrome extension. Installation and the
+base/manual-OTP workflow do not require Node.js or a running backend. Optional
+Phone OTP auto-fill requires the supplied HTTPS relay and Android companion.
 No missing icon, popup or side-panel files are referenced.
 
 Click the extension's Chrome toolbar icon to reopen a closed floating panel.
@@ -33,27 +34,41 @@ The folder you select should look like:
 ```text
 manifest.json
 background.js
+phone-relay.js
 content.js
+options.html
+options.js
 README.md
 ```
 
 If you downloaded the Replit project source rather than this ZIP, select its
 **extension** subfolder, not the project root.
 
-## OTP service
+## Phone OTP companion (replaces Termux/MacroDroid)
 
-Manual OTP entry works without any additional server. The optional Fetch OTP
-button uses your original local service at `http://192.168.0.100:5000/`.
-That service must be running and reachable from the computer running Chrome.
-Chrome may ask for local-network access; grant it only if you use that service.
-If automatic fetching fails, type the OTP manually in the panel.
+Manual OTP entry still works without a server. Automatic fetching now uses the
+native **Visa OTP Companion** Android app and your public HTTPS relay. The old
+LAN/Termux endpoint and its permission have been removed.
 
-MacroDroid and the Termux Flask server stay unchanged: MacroDroid forwards SMS
-to your server; the Chrome background worker fetches
-`/get-latest-otp?consume=1` and passes the result to the panel.
+1. Publish/run the supplied relay at a publicly reachable HTTPS address.
+2. In the extension panel select **Relay setup**, enter only that HTTPS origin
+   (no `/api` path), approve access to that one origin, and save.
+3. Enable **Phone OTP auto-fill**. Copy the displayed **Client Key**.
+4. Install the companion APK on an Android 8+ phone you own. Enter the same relay
+   address and Client Key, tap **Pair phone**, then grant SMS access after reading
+   the disclosure. The key must be paired within ten minutes and is single-use.
+5. Keep the IVAC OTP tab active in Chrome and run the automator. Incoming matching
+   SMS codes reach the relay and are fetched through the background worker.
+
+**Copy** copies the key; **New key** revokes the previous phone and pending OTP.
+The auto-fill switch pauses relay delivery and erases any queued relay code.
+Pairings last 24 hours. RESET also attempts remote revocation before clearing all
+extension storage. If the relay cannot be reached, unpair on the phone too.
+No public relay URL is included in the ZIP; the project must be published or
+the relay hosted before another device can reach it.
 
 While running on the OTP screen, the extension automatically checks for an OTP
-at five-second intervals, with slower retries on connection errors and no
+at two-second intervals, with slower retries on connection errors and no
 overlapping fetch requests. Once a valid code is obtained it fills the website's
 OTP field, clicks Verify/Submit **once**, then only watches for verification.
 It does not click Verify again after a timeout, spinner, rerender or Stop/Start.
@@ -165,7 +180,7 @@ There is no timeout that silently skips the unfinished step.
 ## Verification
 
 Run `node --check extension/content.js`, `node --check extension/background.js` and
-`node --test extension/tests/workflow.test.cjs` from the project root.
+`node --test extension/tests/*.test.cjs` from the project root.
 The tests exercise dispatcher logic using controlled page states; they do not
 simulate the live visa site. Live authenticated flows, actual server upload
 acknowledgments and CAPTCHA provider behavior have not been verified here.

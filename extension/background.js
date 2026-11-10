@@ -1,8 +1,9 @@
 // Chrome Manifest V3 worker. Workflow and controls live in content.js.
 const APPOINTMENT_URL = 'https://appointment.ivacbd.com/';
-const OTP_URL = 'http://192.168.0.100:5000/get-latest-otp?consume=1';
+importScripts('phone-relay.js');
 let otpRequestPending = false;
 let otpController = null;
+let resetting = false;
 
 chrome.action.onClicked.addListener(async tab => {
   try {
@@ -28,25 +29,61 @@ chrome.action.onClicked.addListener(async tab => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!['FETCH_OTP', 'RESET_AUTOMATOR'].includes(message?.type)) return false;
-  if (!sender.tab?.url?.startsWith(APPOINTMENT_URL)) {
+  const phoneActions = ['PHONE_STATE', 'PHONE_ENABLE', 'PHONE_REGENERATE', 'PHONE_CONFIGURE', 'PHONE_SETUP', 'PHONE_ACK_OTP'];
+  if (!['FETCH_OTP', 'RESET_AUTOMATOR', ...phoneActions].includes(message?.type)) return false;
+  const fromOptions = sender.url === chrome.runtime.getURL('options.html') && !sender.tab?.url?.startsWith(APPOINTMENT_URL);
+  if (!sender.tab?.url?.startsWith(APPOINTMENT_URL) && !fromOptions) {
     sendResponse({ ok: false, error: 'OTP requests are only allowed from the appointment page.' });
     return false;
   }
-  if (message.type === 'RESET_AUTOMATOR') {
+  if (resetting) {
+    sendResponse({ ok: false, error: 'Reset in progress. Please wait.' });
+    return false;
+  }
+  if (phoneActions.includes(message.type)) {
+    if (message.type === 'PHONE_CONFIGURE' && !fromOptions) {
+      sendResponse({ ok: false, error: 'Relay configuration is only allowed from extension settings.' });
+      return false;
+    }
     (async () => {
       try {
-        otpController?.abort();
-        const tabs = await chrome.tabs.query({ url: `${APPOINTMENT_URL}*` });
-        await Promise.all(tabs.map(tab => chrome.tabs.sendMessage(tab.id, { type: 'RESET_AUTOMATOR_STATE' }).catch(() => {})));
-        // Last operation: leave storage truly empty, without writing defaults back.
-        await chrome.storage.local.clear();
-        sendResponse({ ok: true });
-      } catch (error) {
-        sendResponse({ ok: false, error: error.message });
-      }
+        let state;
+        if (message.type === 'PHONE_SETUP') await chrome.runtime.openOptionsPage();
+        else if (message.type === 'PHONE_STATE') state = await PhoneRelay.state();
+        else state = await PhoneRelay.serial(() =>
+          message.type === 'PHONE_ACK_OTP' ? PhoneRelay.ack(message.messageId) :
+          message.type === 'PHONE_CONFIGURE' ? PhoneRelay.configure(message.relayURL) :
+          message.type === 'PHONE_REGENERATE' ? PhoneRelay.regenerate() :
+          PhoneRelay.enable(message.enabled === true));
+        sendResponse({ ok: true, state });
+      } catch (error) { sendResponse({ ok: false, error: error.message }); }
     })();
     return true;
+  }
+  if (message.type === 'RESET_AUTOMATOR') {
+    resetting = true;
+    (async () => {
+      try {
+        await PhoneRelay.serial(async () => {
+          otpController?.abort();
+          let warning;
+          try { await PhoneRelay.reset(); }
+          catch { warning = 'Local data cleared, but the relay could not be reached to unpair. Unpair in the Android app too.'; }
+          const tabs = await chrome.tabs.query({ url: `${APPOINTMENT_URL}*` });
+          await Promise.all(tabs.map(tab => chrome.tabs.sendMessage(tab.id, { type: 'RESET_AUTOMATOR_STATE' }).catch(() => {})));
+          // Last queued operation: old receipts cannot restore cleared credentials.
+          await chrome.storage.local.clear();
+          sendResponse({ ok: true, warning });
+        });
+      } catch (error) {
+        sendResponse({ ok: false, error: error.message });
+      } finally { resetting = false; }
+    })();
+    return true;
+  }
+  if (fromOptions || !sender.tab?.active) {
+    sendResponse({ ok: false, error: 'Keep the IVAC OTP tab active to receive a code.' });
+    return false;
   }
   if (otpRequestPending) {
     sendResponse({ ok: false, error: 'An OTP request is already running.' });
@@ -56,16 +93,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   otpController = new AbortController();
   (async () => {
     try {
-      const timeout = setTimeout(() => otpController?.abort(), 12000);
-      let response;
-      try {
-        response = await fetch(OTP_URL, { signal: otpController.signal, cache: 'no-store' });
-      } finally {
-        clearTimeout(timeout);
-      }
-      if (!response.ok) throw new Error(`OTP service returned HTTP ${response.status}`);
-      const data = await response.json();
-      if (!data || typeof data !== 'object') throw new Error('Invalid OTP service response');
+      const data = await PhoneRelay.fetchOTP();
       sendResponse({ ok: true, data });
     } catch (error) {
       sendResponse({ ok: false, error: error.message });

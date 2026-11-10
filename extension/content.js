@@ -12,6 +12,7 @@ let panelCreating = false;
 let otpSession = null;
 let otpRequestVersion = 0;
 let calendarResume = null;
+let phoneStatusTimer = null;
 // Visual history follows observed actions, never a presumed serial sequence.
 const trackerHistory = [];
 let cleanupPending = false;
@@ -99,7 +100,7 @@ function createFloatingPanel() {
           <div style="display: flex; align-items: center; gap: 8px;">
             <span style="background: #ffcc00; width: 8px; height: 8px; border-radius: 50%;"></span>
             <span style="font-weight: bold; font-size: 13px; letter-spacing: 0.5px;">Visa Automator</span>
-            <span style="font-size: 9px; background: #ffcc0022; color: #ffcc00; padding: 2px 6px; border-radius: 4px;">PRO 1.6</span>
+            <span style="font-size: 9px; background: #ffcc0022; color: #ffcc00; padding: 2px 6px; border-radius: 4px;">PRO 2.0</span>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
             <button id="reset-panel" title="Stop automation and erase all saved extension data" style="background: #34202a; border: 1px solid #774052; color: #ffb4be; padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 9px;">RESET</button>
@@ -156,6 +157,20 @@ function createFloatingPanel() {
             </div>
 
             <!-- OTP Input Section -->
+            <section style="background:#13141d;padding:8px;border:1px solid #28293d;border-radius:8px;margin-bottom:8px;font-size:11px;">
+              <label style="display:flex;align-items:center;gap:7px;font-weight:bold;cursor:pointer;">
+                <input id="phone-otp-toggle" type="checkbox" style="accent-color:#00b96c;"> Phone OTP auto-fill
+              </label>
+              <div style="display:flex;gap:5px;align-items:center;margin-top:7px;">
+                <input id="phone-client-key" aria-label="Client Key" readonly placeholder="CLIENT KEY" style="width:100%;font:700 13px monospace;letter-spacing:1px;color:#7ce7b3;background:#161722;border:1px solid #34384d;padding:6px;border-radius:5px;">
+                <button id="phone-copy-key" title="Copy Client Key" style="padding:6px;background:#25283a;color:#eee;border:0;border-radius:5px;cursor:pointer;">Copy</button>
+                <button id="phone-new-key" title="Regenerate key and unpair the old phone" style="padding:6px;background:#25283a;color:#eee;border:0;border-radius:5px;cursor:pointer;">New key</button>
+              </div>
+              <div style="display:flex;gap:6px;align-items:center;margin-top:6px;">
+                <span id="phone-pair-status" role="status" style="color:#a6abbd;flex:1;font-size:10px;">Not paired</span>
+                <button id="phone-relay-setup" style="border:0;background:transparent;color:#7ce7b3;cursor:pointer;font-size:10px;">Relay setup</button>
+              </div>
+            </section>
             <div style="background: #13141d; padding: 8px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #1f2030; display: flex; align-items: center; gap: 8px;">
               <input type="text" id="otp-input-field" placeholder="Enter OTP" maxlength="6" style="flex: 1; background: #161722; border: 1px solid #28293d; color: #00ff88; text-align: center; padding: 6px; border-radius: 6px; font-size: 14px; letter-spacing: 2px; font-weight: bold;" />
               <button id="send-otp-btn" style="background: #222333; border: none; color: #ccc; padding: 7px 10px; border-radius: 6px; font-size: 10px; cursor: pointer;">FETCH OTP</button>
@@ -345,6 +360,7 @@ function createFloatingPanel() {
         const response = await chrome.runtime.sendMessage({ type: 'RESET_AUTOMATOR' });
         if (!response?.ok) throw new Error(response?.error || 'Reset failed');
         logMessage('All saved extension data was cleared.');
+        if (response.warning) logMessage(response.warning);
       } catch (error) {
         logMessage(`Storage reset failed: ${error.message}`);
         currentStageDetail = 'Reset failed. Please try RESET again.';
@@ -476,8 +492,85 @@ function createFloatingPanel() {
       session.revision++;
       scheduleWorkflow(0);
     });
+    initPhoneControls();
     if (result.automatorRunning) startAutomation();
   });
+}
+function renderPhoneState(state = {}) {
+  const toggle = document.getElementById('phone-otp-toggle');
+  const key = document.getElementById('phone-client-key');
+  const text = document.getElementById('phone-pair-status');
+  if (toggle) toggle.checked = !!state.enabled;
+  if (key) key.value = state.clientKey || '';
+  if (text) text.textContent = state.error || (!state.clientKey ? 'Open Relay setup to pair your phone.' :
+    state.expiresAt && Date.now() >= state.expiresAt ? 'Pairing expired. Generate a new key.' :
+    state.paired ? (state.enabled ? 'Phone paired · auto-fill on' : 'Phone paired · auto-fill off') :
+    state.pairExpiresAt && Date.now() >= state.pairExpiresAt ? 'Key expired. Generate a new key.' :
+    'Enter this key in the Android app within 10 minutes.');
+}
+function initPhoneControls() {
+  const message = async payload => {
+    const response = await chrome.runtime.sendMessage(payload);
+    if (!response?.ok) throw Error(response?.error || 'Extension connection unavailable');
+    if (!phoneStatusTimer && response.state?.clientKey) phoneStatusTimer = setInterval(refresh, 5000);
+    return response.state;
+  };
+  const refresh = async () => {
+    if (!document.getElementById('phone-pair-status') || resetInProgress) return;
+    const generation = storageGeneration;
+    try {
+      const state = await message({ type: 'PHONE_STATE' });
+      if (generation === storageGeneration && !resetInProgress) renderPhoneState(state);
+    } catch (error) {
+      if (generation === storageGeneration && !resetInProgress) document.getElementById('phone-pair-status').textContent = error.message;
+    }
+  };
+  const toggle = document.getElementById('phone-otp-toggle');
+  toggle.addEventListener('change', async () => {
+    const enabled = toggle.checked;
+    const generation = storageGeneration;
+    toggle.disabled = true;
+    otpRequestVersion++; // A late in-flight response must not defeat the switch.
+    if (otpSession) otpSession.fetchPending = false;
+    try {
+      const state = await message({ type: 'PHONE_ENABLE', enabled });
+      if (generation === storageGeneration && !resetInProgress) { renderPhoneState(state); scheduleWorkflow(0); }
+    }
+    catch (error) {
+      if (generation === storageGeneration && !resetInProgress) {
+        toggle.checked = !enabled; document.getElementById('phone-pair-status').textContent = error.message;
+      }
+    }
+    finally { toggle.disabled = false; }
+  });
+  document.getElementById('phone-relay-setup').addEventListener('click', () => {
+    void message({ type: 'PHONE_SETUP' }).catch(error => { document.getElementById('phone-pair-status').textContent = error.message; });
+  });
+  document.getElementById('phone-copy-key').addEventListener('click', async () => {
+    const key = document.getElementById('phone-client-key');
+    if (!key.value) return;
+    try { await navigator.clipboard.writeText(key.value); document.getElementById('phone-pair-status').textContent = 'Client Key copied.'; }
+    catch { key.select(); document.getElementById('phone-pair-status').textContent = 'Press Ctrl+C to copy the selected key.'; }
+  });
+  document.getElementById('phone-new-key').addEventListener('click', async event => {
+    if (!window.confirm('Regenerate the Client Key? This disconnects the old phone and erases its pending OTP. Pair your phone again with the new key.')) return;
+    const button = event.currentTarget;
+    const generation = storageGeneration;
+    button.disabled = true;
+    otpRequestVersion++;
+    if (otpSession) otpSession.fetchPending = false;
+    try {
+      const state = await message({ type: 'PHONE_REGENERATE' });
+      if (generation === storageGeneration && !resetInProgress) renderPhoneState(state);
+    }
+    catch (error) {
+      if (generation === storageGeneration && !resetInProgress) document.getElementById('phone-pair-status').textContent = error.message;
+    }
+    finally { button.disabled = false; }
+  });
+  if (phoneStatusTimer) clearInterval(phoneStatusTimer);
+  phoneStatusTimer = setInterval(refresh, 5000);
+  void refresh();
 }
 
 function updateSlotDisplayStatus() {
@@ -552,6 +645,9 @@ function resetPanelState() {
   // Invalidate async file readers and fetched OTPs before clearing persistent data.
   storageGeneration++;
   clearOTPSession();
+  if (phoneStatusTimer) clearInterval(phoneStatusTimer);
+  phoneStatusTimer = null;
+  renderPhoneState();
   isRunning = false;
   clearTimeout(automatorInterval);
   automatorInterval = null;
@@ -684,7 +780,7 @@ function pollOTPFromBackground(automatic = false) {
   const revision = session.revision;
   const requestVersion = ++otpRequestVersion;
   session.fetchPending = true;
-  session.nextFetchAt = Date.now() + 5000;
+  session.nextFetchAt = Date.now() + 2000;
   const failed = () => {
     session.fetchFailures++;
     session.nextFetchAt = Date.now() + Math.min(20000, 5000 * 2 ** Math.min(session.fetchFailures, 2));
@@ -714,6 +810,8 @@ function pollOTPFromBackground(automatic = false) {
         if (field && !validOTP(code, field)) return;
         const otpFieldBox = document.getElementById('otp-input-field');
         if (otpFieldBox) otpFieldBox.value = code;
+        session.relayMessageId = data.messageId || null;
+        session.relayCode = code;
         logMessage('Fetched OTP successfully.');
         pushManualOTP();
       }
@@ -745,6 +843,12 @@ function submitOTPOnce(step, verify) {
   } finally {
     session.autoSubmitting = false;
   }
+  if (session.relayMessageId && session.relayCode === code) {
+    chrome.runtime.sendMessage({ type: 'PHONE_ACK_OTP', messageId: session.relayMessageId }, () => {
+      // Access lastError to suppress an unhandled worker-disconnect warning.
+      if (chrome.runtime.lastError) logMessage('OTP receipt could not be saved; this session will still never resubmit the code.');
+    });
+  }
   updateStage('OTP verification', '30%', 'OTP submitted once. Waiting for verification; no automatic resubmission.');
   logMessage('OTP submitted once; waiting for the verified page transition.');
   return true;
@@ -774,7 +878,7 @@ function performOTP(step) {
   }
   updateStage('OTP verification', '30%', rejected ?
     'Code rejected or expired. Waiting for a NEW code; the previous code will not be retried.' :
-    'Waiting for OTP from the Termux Flask server or manual entry…');
+    'Waiting for a paired-phone OTP or manual entry…');
   if (isRunning && (!code || session.attempted.has(code))) pollOTPFromBackground(true);
 }
 function observeManualOTP(event) {
