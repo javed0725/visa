@@ -39,6 +39,16 @@ with a simpler Android companion flow.
 the source of OTPs. Do not restore the old LAN endpoint or substitute an unrelated
 SMS provider. Keep once-per-code submission and manual override intact.
 
+The user chose to keep fully automatic SMS reception rather than switching to
+one-tap SMS User Consent when Play Protect blocked installation.
+
+**Why:** The user explicitly selected "Keep fully automatic SMS" after the
+per-message approval tradeoff was explained.
+
+**How to apply:** Do not silently replace background SMS reception with
+per-message consent. Treat installation policy and approval as a separate
+constraint; do not promise that rebuilding or signing alone removes Google's block.
+
 OTP is an exception to the general action retry policy: submit a received code
 once, then remain active while waiting for verification. Manual website OTP entry
 and verification must be respected and followed by automatic workflow resumption.
