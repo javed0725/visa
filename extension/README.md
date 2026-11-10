@@ -48,6 +48,23 @@ That service must be running and reachable from the computer running Chrome.
 Chrome may ask for local-network access; grant it only if you use that service.
 If automatic fetching fails, type the OTP manually in the panel.
 
+MacroDroid and the Termux Flask server stay unchanged: MacroDroid forwards SMS
+to your server; the Chrome background worker fetches
+`/get-latest-otp?consume=1` and passes the result to the panel.
+
+While running on the OTP screen, the extension automatically checks for an OTP
+at five-second intervals, with slower retries on connection errors and no
+overlapping fetch requests. Once a valid code is obtained it fills the website's
+OTP field, clicks Verify/Submit **once**, then only watches for verification.
+It does not click Verify again after a timeout, spinner, rerender or Stop/Start.
+Codes are not written to extension storage or logs.
+
+If you type or paste directly into the website, the extension will not overwrite
+or automatically submit that input. Verify it yourself; the automator detects
+the form submission or the stable transition to the next recognized step and
+continues. An explicit rejection/expiry signal permits a **new, different**
+code, but never automatically retries the same code.
+
 ## Changes
 
 - The panel is 320px wide (previously 390px). Fonts, button labels, padding and
@@ -66,9 +83,9 @@ If automatic fetching fails, type the OTP manually in the panel.
   mission/center, appointment button, informational Next popup, or available dates.
 - Watches DOM changes and also checks periodically for changes that do not
   generate DOM mutations.
-- Keeps one pending workflow action; retries use a 3–20 second backoff.
+- Keeps one pending workflow action; non-OTP retries use a 3–20 second backoff.
 - Closing a nuisance popup does not cancel a pending workflow step.
-- Retries OTP submission using the panel's current code, without logging the code.
+- Submits each OTP once and remains active while waiting for verification.
 - Requires upload success within each document's own container before confirming
   all information. Selecting a local file alone does not mean it was uploaded.
 - Reattaches documents on explicit upload errors; never repeatedly replaces
@@ -100,8 +117,10 @@ does not mark an appointment booked.
 
 ## Site-specific selectors
 
-The `PAGE` object in content.js holds the detection, loading, upload-success,
-upload-error and booking-success selectors. Upload success accepts a scoped
+The `PAGE` object in content.js holds detection, loading, OTP success/error,
+upload-success, upload-error and booking-success selectors. Adjust `otpOK` and
+`otpError` to the site's actual explicit success/rejection markup if needed.
+Upload success accepts a scoped
 status such as `data-upload-status="success"`, `.upload-success`,
 `.ant-upload-list-item-done`, or a check mark in an upload status element.
 Adjust these selectors to the real site's DOM if its markup differs.

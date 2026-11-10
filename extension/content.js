@@ -8,6 +8,8 @@ let storageGeneration = 0;
 let resetInProgress = false;
 let currentStageDetail = '';
 let panelCreating = false;
+let otpSession = null;
+let otpRequestVersion = 0;
 // Visual history follows observed actions, never a presumed serial sequence.
 const trackerHistory = [];
 let cleanupPending = false;
@@ -92,7 +94,7 @@ function createFloatingPanel() {
           <div style="display: flex; align-items: center; gap: 8px;">
             <span style="background: #ffcc00; width: 8px; height: 8px; border-radius: 50%;"></span>
             <span style="font-weight: bold; font-size: 13px; letter-spacing: 0.5px;">Visa Automator</span>
-            <span style="font-size: 9px; background: #ffcc0022; color: #ffcc00; padding: 2px 6px; border-radius: 4px;">PRO 1.3</span>
+            <span style="font-size: 9px; background: #ffcc0022; color: #ffcc00; padding: 2px 6px; border-radius: 4px;">PRO 1.4</span>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
             <button id="reset-panel" title="Stop automation and erase all saved extension data" style="background: #34202a; border: 1px solid #774052; color: #ffb4be; padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 9px;">RESET</button>
@@ -455,6 +457,11 @@ function createFloatingPanel() {
     document.getElementById('send-otp-btn').addEventListener('click', () => {
       pollOTPFromBackground();
     });
+    document.getElementById('otp-input-field').addEventListener('input', () => {
+      const session = getOTPSession();
+      session.revision++;
+      scheduleWorkflow(0);
+    });
     if (result.automatorRunning) startAutomation();
   });
 }
@@ -533,6 +540,7 @@ function compactPanel(panel) {
 function resetPanelState() {
   // Invalidate async file readers and fetched OTPs before clearing persistent data.
   storageGeneration++;
+  clearOTPSession();
   isRunning = false;
   clearTimeout(automatorInterval);
   automatorInterval = null;
@@ -621,6 +629,8 @@ function startAutomation() {
 
 function stopAutomation() {
   isRunning = false;
+  otpRequestVersion++;
+  if (otpSession) otpSession.fetchPending = false;
   clearTimeout(automatorInterval);
   automatorInterval = null;
   workflowObserver?.disconnect();
@@ -634,33 +644,152 @@ function pushManualOTP() {
   return runManualStep('otp');
 }
 
-function pollOTPFromBackground() {
+function getOTPSession() {
+  if (!otpSession) otpSession = {
+    attempted: new Set(), submitted: false, manualPageInput: false,
+    revision: 0, fetchPending: false, nextFetchAt: 0, fetchFailures: 0
+  };
+  return otpSession;
+}
+function clearOTPSession() {
+  otpRequestVersion++;
+  otpSession = null;
+  const panelOTP = document.getElementById('otp-input-field');
+  if (panelOTP) panelOTP.value = '';
+}
+function otpCode(value) { return String(value || '').replace(/\s/g, ''); }
+function validOTP(code, field) {
+  const length = field.maxLength > 0 && field.maxLength <= 10 ? field.maxLength :
+    field.minLength > 0 && field.minLength <= 10 ? field.minLength : 6;
+  return new RegExp(`^\\d{${length}}$`).test(code);
+}
+function pollOTPFromBackground(automatic = false) {
   const generation = storageGeneration;
+  const session = getOTPSession();
+  const rejected = activeStep?.kind === 'otp' && !!first(PAGE.otpError, activeStep.root);
+  if (resetInProgress || session.fetchPending || session.manualPageInput ||
+    (session.submitted && !rejected) || (automatic && Date.now() < session.nextFetchAt)) return;
+  const revision = session.revision;
+  const requestVersion = ++otpRequestVersion;
+  session.fetchPending = true;
+  session.nextFetchAt = Date.now() + 5000;
+  const failed = () => {
+    session.fetchFailures++;
+    session.nextFetchAt = Date.now() + Math.min(20000, 5000 * 2 ** Math.min(session.fetchFailures, 2));
+    if (!automatic) logMessage('OTP service unavailable. Waiting; manual OTP entry is still available.');
+  };
   try {
     if (!chrome.runtime?.id) {
-      logMessage('Background context inactive. Please type OTP manually.');
+      session.fetchPending = false;
+      failed();
       return;
     }
-    
     chrome.runtime.sendMessage({ type: 'FETCH_OTP' }, (response) => {
-      if (generation !== storageGeneration || resetInProgress) return;
+      session.fetchPending = false;
+      if (generation !== storageGeneration || requestVersion !== otpRequestVersion ||
+        session !== otpSession || session.revision !== revision || session.manualPageInput ||
+        resetInProgress || (automatic && !isRunning) || (session.submitted && !rejected)) return;
       if (chrome.runtime.lastError || !response || !response.ok) {
-        logMessage('Auto fetch failed. Type OTP manually in the box.');
+        failed();
         return;
       }
-      
+      session.fetchFailures = 0;
       const data = response.data;
       if (data && data.success && data.otp) {
-        const otpCode = data.otp;
+        const code = otpCode(data.otp);
+        if (!/^\d{4,10}$/.test(code) || session.attempted.has(code)) return;
+        const field = first(PAGE.otp);
+        if (field && !validOTP(code, field)) return;
         const otpFieldBox = document.getElementById('otp-input-field');
-        if (otpFieldBox) otpFieldBox.value = otpCode;
+        if (otpFieldBox) otpFieldBox.value = code;
         logMessage('Fetched OTP successfully.');
         pushManualOTP();
       }
     });
   } catch (err) {
-    logMessage('OTP fetch exception occurred.');
+    session.fetchPending = false;
+    failed();
   }
+}
+
+const OTP_SUBMIT_LABEL = /^(verify(?: otp| code)?|submit|confirm(?: otp| code)?|verify\s*(?:&|and)\s*continue)$/i;
+function submitOTPOnce(step, verify) {
+  const session = getOTPSession();
+  const code = otpCode(step.el.value);
+  const rejected = !!first(PAGE.otpError, step.root);
+  if (session.manualPageInput || session.attempted.has(code) ||
+    (session.submitted && !rejected) || !validOTP(code, step.el) ||
+    !step.el.checkValidity() || !enabled(verify) || busy(step.root) || captchaPending(step.root)) return false;
+  // Record BEFORE clicking: synchronous rerenders or event handlers cannot resend.
+  session.attempted.add(code);
+  session.submitted = true;
+  step.submitted = true;
+  step.tries++;
+  // A synthetic click may cause the browser to emit a trusted submit event.
+  // Keep that default form action from being mistaken for a user override.
+  session.autoSubmitting = true;
+  try {
+    verify.click();
+  } finally {
+    session.autoSubmitting = false;
+  }
+  updateStage('OTP verification', '30%', 'OTP submitted once. Waiting for verification; no automatic resubmission.');
+  logMessage('OTP submitted once; waiting for the verified page transition.');
+  return true;
+}
+function performOTP(step) {
+  const session = getOTPSession();
+  const rejected = !!first(PAGE.otpError, step.root);
+  if (session.manualPageInput) {
+    updateStage('OTP verification', '30%', 'Manual OTP entry detected. Verify on the website; automation will resume after acceptance.');
+    return;
+  }
+  if (session.submitted && !rejected) {
+    updateStage('OTP verification', '30%', 'OTP submitted once. Waiting for verification; no automatic resubmission.');
+    return;
+  }
+  const code = otpCode(document.getElementById('otp-input-field')?.value);
+  if (validOTP(code, step.el) && !session.attempted.has(code)) {
+    setValue(step.el, code);
+    submitOTPOnce(step, button(OTP_SUBMIT_LABEL, step.root));
+    return;
+  }
+  // Never overwrite or automatically submit a code already entered on the site.
+  if (step.el.value?.trim() && !session.submitted) {
+    session.manualPageInput = true;
+    updateStage('OTP verification', '30%', 'Code present on the website. Please verify it manually.');
+    return;
+  }
+  updateStage('OTP verification', '30%', rejected ?
+    'Code rejected or expired. Waiting for a NEW code; the previous code will not be retried.' :
+    'Waiting for OTP from the Termux Flask server or manual entry…');
+  if (isRunning && (!code || session.attempted.has(code))) pollOTPFromBackground(true);
+}
+function observeManualOTP(event) {
+  if (!event.isTrusted || inPanel(event.target)) return;
+  const field = event.type === 'input' && event.target.matches?.(PAGE.otp) ?
+    event.target : first(PAGE.otp);
+  if (!field || !visible(field)) return;
+  const session = getOTPSession();
+  if (session.autoSubmitting) return;
+  if (event.type === 'input') {
+    session.manualPageInput = true;
+    session.revision++;
+    scheduleWorkflow(0);
+    return;
+  }
+  const root = scopeOf(field);
+  const control = event.target.closest?.('button, input[type="submit"], input[type="button"], [role="button"]');
+  const submitting = event.type === 'submit' ? event.target.contains(field) :
+    control && root.contains(control) && OTP_SUBMIT_LABEL.test(label(control));
+  if (!submitting) return;
+  const code = otpCode(field.value);
+  if (code) session.attempted.add(code);
+  session.manualPageInput = true;
+  session.submitted = true;
+  session.revision++;
+  if (activeStep?.kind === 'otp') activeStep.submitted = true;
+  scheduleWorkflow(0);
 }
 
 // Manual pushes use exactly the same locks, CAPTCHA gates and retry rules.
@@ -675,6 +804,8 @@ function executeSlotBooking() { return runManualStep('booking'); }
 const PAGE = {
   dialogs: 'dialog[open], [role="dialog"], [role="alertdialog"], [aria-modal="true"], .modal, .popup, .popup-overlay, .dialog, .swal2-popup, .swal-modal, .ant-modal, .MuiDialog-root, [data-state="open"][data-dialog]',
   otp: 'input[name*="otp" i], input[placeholder*="otp" i], input[aria-label*="otp" i], input#otp, input[autocomplete="one-time-code"]',
+  otpOK: '[data-otp-status="verified"], [data-otp-status="success"], #otp-success, .otp-success',
+  otpError: '[data-otp-status="error"], [data-otp-status="expired"], .otp-error, #otp-error',
   phone: 'input[type="tel"], input[placeholder*="01"], input[name="username"]',
   mission: 'select[name*="mission" i], select#mission, select.mission-select',
   center: 'select[name*="center" i], select#center, select.center-select',
@@ -804,8 +935,9 @@ function captchaPending(root = document) {
 function detectSteps() {
   const steps = [];
   const add = (kind, el) => { if (el) steps.push({ kind, el, root: scopeOf(el) }); };
-  add('otp', first(PAGE.otp));
-  add('signIn', first('input[type="password"]') || first(PAGE.phone));
+  const otpField = first(PAGE.otp);
+  if (otpField && !first(PAGE.otpOK, scopeOf(otpField))) add('otp', otpField);
+  add('signIn', first('input[type="password"]') || all(PAGE.phone).find(el => !el.matches(PAGE.otp)));
   const uploads = fileInputs();
   add('upload', uploads[0] || button(/^confirm all information is correct/i));
   add('mission', first(PAGE.mission) || first(PAGE.center));
@@ -824,15 +956,18 @@ function detectSteps() {
 }
 function status(kind, done) {
   if (STATUS_KEY[kind]) stepStatus[STATUS_KEY[kind]] = done;
+  if (kind === 'otp' && done) clearOTPSession();
   if (kind === 'next') trackerNextComplete = done;
   revealTrackerStep(kind);
   updateStepTrackerUI();
 }
 function newStep(candidate) {
   status(candidate.kind, false);
-  return { ...candidate, tries: 0, nextTry: 0, submitted: false, absentSince: 0, selectedDate: false };
+  return { ...candidate, tries: 0, nextTry: 0,
+    submitted: candidate.kind === 'otp' && !!otpSession?.submitted, absentSince: 0, selectedDate: false };
 }
 function submitStep(step, el) {
+  if (step.kind === 'otp') return submitOTPOnce(step, el);
   if (Date.now() < step.nextTry || !el || busy(step.root) || captchaPending(step.root)) return false;
   if (!click(el)) return false;
   step.tries++;
@@ -869,11 +1004,7 @@ function performStep(step) {
       break;
     }
     case 'otp': {
-      updateStage('OTP verification', '30%', 'Waiting for OTP acceptance, not just a button click.');
-      const code = document.getElementById('otp-input-field')?.value?.trim();
-      if (code && setValue(step.el, code)) { step.nextTry = Date.now() + 400; return; }
-      if (!step.el.value?.trim() || !step.el.checkValidity()) return;
-      submitStep(step, button(/^(verify(?: otp)?|submit|confirm(?: otp)?|verify & continue)$/i, root));
+      performOTP(step);
       break;
     }
     case 'appointment':
@@ -1008,6 +1139,10 @@ function executeWorkflowSteps(requestedKind = null) {
       revealTrackerStep('next');
     }
     popupContinuation = null;
+    if (activeStep?.kind === 'otp' && first(PAGE.otpOK, activeStep.root)) {
+      status('otp', true);
+      activeStep = null;
+    }
     if (activeStep) {
       const current = candidates.find(s => s.kind === activeStep.kind);
       if (current) {
@@ -1015,7 +1150,8 @@ function executeWorkflowSteps(requestedKind = null) {
         activeStep.root = current.root;
         activeStep.absentSince = 0;
       } else {
-        const other = candidates.find(s => s.kind !== activeStep.kind);
+        const other = candidates.find(s => s.kind !== activeStep.kind &&
+          (activeStep.kind !== 'otp' || !['otp', 'signIn', 'next'].includes(s.kind)));
         const blocked = all(PAGE.dialogs).length > 0 || busy() || captchaPending();
         if (activeStep.kind === 'booking' && first(PAGE.booked)) {
           status('booking', true);
@@ -1024,7 +1160,8 @@ function executeWorkflowSteps(requestedKind = null) {
         }
         // A transiently missing input is NOT success. Require an actual submitted
         // action, another recognized step, no blockers, and a stable transition.
-        if (activeStep.submitted && other && !blocked) {
+        const manualOTPTransition = activeStep.kind === 'otp' && otpSession?.manualPageInput;
+        if ((activeStep.submitted || manualOTPTransition) && other && !blocked) {
           if (!activeStep.absentSince) activeStep.absentSince = Date.now();
           if (Date.now() - activeStep.absentSince >= 1200) {
             // Leaving the calendar is not proof that a booking was confirmed.
@@ -1068,6 +1205,11 @@ function executeWorkflowSteps(requestedKind = null) {
     scheduleWorkflow();
   }
 }
+
+// Capture user interaction without treating our synthetic fill/click as manual.
+document.addEventListener?.('input', observeManualOTP, true);
+document.addEventListener?.('click', observeManualOTP, true);
+document.addEventListener?.('submit', observeManualOTP, true);
 
 // Reopen the panel from Chrome's toolbar without resetting the active page.
 if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {

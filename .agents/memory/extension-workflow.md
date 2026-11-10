@@ -27,3 +27,21 @@ site-specific evidence is unavailable.
 **How to apply:** Add verified site-specific selectors when real markup is
 available. Do not broaden to arbitrary dialog buttons or infer upload success
 from a selected local file.
+
+The user uses a Termux Flask server, with MacroDroid forwarding incoming SMS to
+that server; the panel retrieves OTPs through the Chrome background script.
+
+**Why:** The user explicitly asked to keep this integration, not replace it.
+
+**How to apply:** Preserve the MacroDroid → Flask → Chrome background → panel
+workflow when changing OTP handling. Do not add an unrelated SMS provider.
+
+OTP is an exception to the general action retry policy: submit a received code
+once, then remain active while waiting for verification. Manual website OTP entry
+and verification must be respected and followed by automatic workflow resumption.
+
+**Why:** The user specifically rejected endlessly retrying or spamming OTP
+verification while also rejecting premature automation stops.
+
+**How to apply:** Keep detection persistent, not submission. Never treat a
+Verify click as success or overwrite an in-progress manual entry.

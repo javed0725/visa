@@ -25,6 +25,7 @@ function engine() {
     var originalPerformUploads = performUploads;
     var originalCaptchaPending = captchaPending;
     var originalUpdateStepTrackerUI = updateStepTrackerUI;
+    var originalPerformStep = performStep;
     var observed = [];
     var pageCandidates = [];
     var pageBlocked = false;
@@ -133,7 +134,7 @@ test('leaving calendar never fabricates a booked appointment', () => {
 
 test('submission retries respect increasing cooldowns and loaders', () => {
   const e = engine();
-  e.run(`click = el => { clicks.push('click'); return true; }; var s = newStep(sample('otp')); submitStep(s, {}); submitStep(s, {});`);
+  e.run(`click = el => { clicks.push('click'); return true; }; var s = newStep(sample('signIn')); submitStep(s, {}); submitStep(s, {});`);
   assert.equal(e.run('clicks.length'), 1);
   e.advance(3000);
   e.run('submitStep(s, {});');
@@ -354,4 +355,171 @@ test('untrusted pages cannot request an extension storage reset', async () => {
   assert.equal(result.ok, false);
   assert.equal(Object.keys(b.store).length, 4);
   assert.deepEqual(b.events, []);
+});
+
+function otpEngine() {
+  const e = engine();
+  e.run(`
+    var otpPanel = {value: ''};
+    var hasOTPError = false;
+    var hasOTPSuccess = false;
+    var messages = [];
+    var otpRoot = {contains: () => true};
+    var otpField = {
+      value: '', maxLength: 6, minLength: 0,
+      checkValidity: () => true, matches: () => true,
+      closest: selector => selector === '#visa-automator-floating-panel' ? null : otpRoot
+    };
+    var verifyButton = {
+      textContent: 'Verify', getAttribute: () => null,
+      closest: selector => selector === '#visa-automator-floating-panel' ? null : verifyButton,
+      click() { clicks.push('verify'); }
+    };
+    document.getElementById = id => id === 'otp-input-field' ? otpPanel : null;
+    first = selector => selector === PAGE.otp ? otpField :
+      selector === PAGE.otpError ? (hasOTPError ? {} : null) :
+      selector === PAGE.otpOK ? (hasOTPSuccess ? {} : null) : null;
+    visible = () => true;
+    enabled = el => !!el && !el.disabled;
+    button = () => verifyButton;
+    setValue = (el, value) => { el.value = value; };
+    scheduleWorkflow = () => {};
+    chrome.runtime = {id: 'test', sendMessage(message, callback) { messages.push({message, callback}); }};
+    var candidate = {kind: 'otp', el: otpField, root: otpRoot};
+    activeStep = newStep(candidate);
+    pageCandidates = [candidate];
+    performStep = originalPerformStep;
+  `);
+  return e;
+}
+
+test('OTP fills and submits once even after repeated checks and long waits', () => {
+  const e = otpEngine();
+  e.run(`otpPanel.value = '123456'; performOTP(activeStep); performOTP(activeStep);`);
+  e.advance(60000);
+  e.run('performOTP(activeStep);');
+  assert.equal(e.run('otpField.value'), '123456');
+  assert.equal(e.run(`clicks.join(',')`), 'verify');
+  assert.equal(e.run('stepStatus.otpVerified'), false);
+});
+
+test('OTP waits for an enabled verification button without consuming its attempt', () => {
+  const e = otpEngine();
+  e.run(`otpPanel.value = '123456'; verifyButton.disabled = true; performOTP(activeStep);`);
+  assert.equal(e.run('getOTPSession().attempted.size'), 0);
+  e.run(`verifyButton.disabled = false; performOTP(activeStep); performOTP(activeStep);`);
+  assert.equal(e.run('clicks.length'), 1);
+});
+
+test('automatic Termux fetching fills and verifies only once through background messaging', () => {
+  const e = otpEngine();
+  e.run(`isRunning = true; performOTP(activeStep); performOTP(activeStep);`);
+  assert.equal(e.run('messages.length'), 1);
+  e.run(`messages[0].callback({ok:true,data:{success:true,otp:'123456'}}); performOTP(activeStep);`);
+  assert.equal(e.run('otpField.value'), '123456');
+  assert.equal(e.run('clicks.length'), 1);
+  assert.equal(e.run('messages.length'), 1);
+  assert.equal(e.run('isRunning'), true);
+});
+
+test('waiting for SMS uses paced polling with no overlapping fetch requests', () => {
+  const e = otpEngine();
+  e.run(`isRunning = true; performOTP(activeStep); performOTP(activeStep);`);
+  assert.equal(e.run('messages.length'), 1);
+  e.run(`messages[0].callback({ok:true,data:{success:false}}); performOTP(activeStep);`);
+  assert.equal(e.run('messages.length'), 1);
+  e.advance(5000);
+  e.run('performOTP(activeStep);');
+  assert.equal(e.run('messages.length'), 2);
+  assert.equal(e.run('isRunning'), true);
+  assert.equal(e.run('clicks.length'), 0);
+});
+
+test('a late fetched OTP cannot overwrite a user typing on the website', () => {
+  const e = otpEngine();
+  e.run(`
+    isRunning = true; performOTP(activeStep);
+    otpField.value = '654321';
+    observeManualOTP({type:'input', isTrusted:true, target:otpField});
+    messages[0].callback({ok:true,data:{success:true,otp:'123456'}});
+    performOTP(activeStep);
+  `);
+  assert.equal(e.run('otpField.value'), '654321');
+  assert.equal(e.run('otpPanel.value'), '');
+  assert.equal(e.run('clicks.length'), 0);
+});
+
+test('manual website Verify is observed and automation resumes after the stable next screen', () => {
+  const e = otpEngine();
+  e.run(`
+    otpField.value = '654321';
+    observeManualOTP({type:'input',isTrusted:true,target:otpField});
+    observeManualOTP({type:'click',isTrusted:true,target:verifyButton});
+    performStep = step => clicks.push(step.kind);
+    pageCandidates = [sample('upload')];
+    executeWorkflowSteps();
+  `);
+  assert.equal(e.run('stepStatus.otpVerified'), false);
+  e.advance(1300);
+  e.run('executeWorkflowSteps();');
+  assert.equal(e.run('stepStatus.otpVerified'), true);
+  assert.equal(e.run('activeStep.kind'), 'upload');
+  assert.equal(e.run('otpPanel.value'), '');
+});
+
+test('manual form submission without an input event still unlocks a verified transition', () => {
+  const e = otpEngine();
+  e.run(`
+    otpField.value = '654321';
+    observeManualOTP({type:'submit',isTrusted:true,target:otpRoot});
+  `);
+  assert.equal(e.run('activeStep.submitted'), true);
+  assert.equal(e.run('getOTPSession().attempted.has("654321")'), true);
+});
+
+test('rejected OTP is not retried; a new distinct code may be submitted once', () => {
+  const e = otpEngine();
+  e.run(`otpPanel.value = '123456'; performOTP(activeStep); hasOTPError = true; performOTP(activeStep);`);
+  assert.equal(e.run('clicks.length'), 1);
+  e.run(`otpPanel.value = '654321'; performOTP(activeStep); performOTP(activeStep);`);
+  assert.equal(e.run('clicks.length'), 2);
+});
+
+test('stop and resume preserve the once-per-code submission guard', () => {
+  const e = otpEngine();
+  e.run(`otpPanel.value = '123456'; performOTP(activeStep); stopAutomation(); isRunning = true; performOTP(activeStep);`);
+  assert.equal(e.run('clicks.length'), 1);
+});
+
+test('reset invalidates pending fetched OTP responses', () => {
+  const e = otpEngine();
+  e.run(`isRunning = true; performOTP(activeStep); resetPanelState(); messages[0].callback({ok:true,data:{success:true,otp:'123456'}});`);
+  assert.equal(e.run('otpPanel.value'), '');
+  assert.equal(e.run('clicks.length'), 0);
+  assert.equal(e.run('otpSession'), null);
+});
+
+test('returning to sign-in cannot be mistaken for successful OTP verification', () => {
+  const e = otpEngine();
+  e.run(`otpPanel.value = '123456'; performOTP(activeStep); pageCandidates = [sample('signIn')]; executeWorkflowSteps();`);
+  e.advance(5000);
+  e.run('executeWorkflowSteps();');
+  assert.equal(e.run('stepStatus.otpVerified'), false);
+  assert.equal(e.run('activeStep.kind'), 'otp');
+});
+
+test('browser-generated form submit during the automatic click is not a manual override', () => {
+  const e = otpEngine();
+  e.run(`
+    verifyButton.click = () => {
+      clicks.push('verify');
+      observeManualOTP({type:'submit',isTrusted:true,target:otpRoot});
+    };
+    otpPanel.value = '123456';
+    performOTP(activeStep);
+    performOTP(activeStep);
+  `);
+  assert.equal(e.run('clicks.length'), 1);
+  assert.equal(e.run('getOTPSession().manualPageInput'), false);
+  assert.equal(e.run('getOTPSession().submitted'), true);
 });
