@@ -24,6 +24,7 @@ function engine() {
     var originalPopupCleanup = executePopupCleanup;
     var originalPerformUploads = performUploads;
     var originalCaptchaPending = captchaPending;
+    var originalUpdateStepTrackerUI = updateStepTrackerUI;
     var observed = [];
     var pageCandidates = [];
     var pageBlocked = false;
@@ -236,4 +237,70 @@ test('CAPTCHA waits for provider response instead of trying to click frame', () 
   assert.equal(e.run('originalCaptchaPending(captchaRoot)'), true);
   e.run(`response.value = 'provider-verified-test-response';`);
   assert.equal(e.run('originalCaptchaPending(captchaRoot)'), false);
+});
+
+function trackerEngine() {
+  const e = engine();
+  e.run(`
+    var nodes = {};
+    document.createElement = tag => ({
+      tagName: tag, style: {}, className: '', textContent: '',
+      appendChild(child) { this.child = child; }
+    });
+    for (const item of TRACKER_STEPS) {
+      var stateLabel = {textContent: ''};
+      var push = {setAttribute() {}};
+      var row = {
+        dataset: {}, style: {}, stateLabel, push,
+        setAttribute(key, value) { this[key] = value; },
+        querySelector(selector) { return selector === 'button' ? this.push : this.stateLabel; }
+      };
+      var label = {firstChild: {textContent: ''}, parentElement: row};
+      nodes[item.id] = {parentElement: label, style: {}, setAttribute() {}};
+    }
+    nodes['visa-step-list'] = {};
+    nodes['visa-step-empty'] = {};
+    document.getElementById = id => nodes[id] || null;
+    updateStepTrackerUI = originalUpdateStepTrackerUI;
+  `);
+  return e;
+}
+
+test('tracker hides all future steps before the first detected screen', () => {
+  const e = trackerEngine();
+  e.run('updateStepTrackerUI();');
+  assert.equal(e.run(`Object.values(nodes).filter(n => n.parentElement?.parentElement?.dataset.state).length`), 0);
+  assert.equal(e.run(`nodes['visa-step-empty'].hidden`), false);
+});
+
+test('tracker reveals uploads directly with a spinner, not skipped login steps', () => {
+  const e = trackerEngine();
+  e.run(`isRunning = true; activeStep = newStep(sample('upload')); updateStepTrackerUI();`);
+  assert.equal(e.run(`nodes['step-upload'].parentElement.parentElement.dataset.state`), 'active');
+  assert.equal(e.run(`nodes['step-upload'].className`), 'va-step-spinner');
+  assert.equal(e.run(`nodes['step-sign-in'].parentElement.parentElement.dataset.state`), undefined);
+});
+
+test('completed step keeps its checkmark while the next detected step is revealed', () => {
+  const e = trackerEngine();
+  e.run(`isRunning = true; activeStep = newStep(sample('signIn')); status('signIn', true); activeStep = newStep(sample('otp')); updateStepTrackerUI();`);
+  assert.equal(e.run(`nodes['step-sign-in'].textContent`), '✓');
+  assert.equal(e.run(`nodes['step-sign-in'].parentElement.parentElement.dataset.state`), 'complete');
+  assert.equal(e.run(`nodes['step-otp'].className`), 'va-step-spinner');
+  assert.equal(e.run(`nodes['step-upload'].parentElement.parentElement.dataset.state`), undefined);
+});
+
+test('stopping removes the working spinner without losing completed progress', () => {
+  const e = trackerEngine();
+  e.run(`isRunning = true; activeStep = newStep(sample('upload')); updateStepTrackerUI(); stopAutomation();`);
+  assert.equal(e.run(`nodes['step-upload'].className`), '');
+  assert.equal(e.run(`nodes['step-upload'].parentElement.parentElement.stateLabel.textContent`), 'Stopped');
+});
+
+test('reached steps are ordered by actual execution, not fixed step numbers', () => {
+  const e = trackerEngine();
+  e.run(`isRunning = true; activeStep = newStep(sample('upload')); status('upload', true); activeStep = newStep(sample('mission')); updateStepTrackerUI();`);
+  assert.equal(e.run(`nodes['step-upload'].parentElement.parentElement.style.order`), 0);
+  assert.equal(e.run(`nodes['step-mission'].parentElement.parentElement.style.order`), 1);
+  assert.equal(e.run(`nodes['step-popups'].parentElement.parentElement.dataset.state`), undefined);
 });

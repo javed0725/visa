@@ -50,6 +50,13 @@ If automatic fetching fails, type the OTP manually in the panel.
 
 ## Changes
 
+- The compact progress tracker shows only reached/completed steps and the current
+  step. Future steps are hidden, including when starting directly from uploads.
+- The current step has a working spinner while automation is running. Stopping
+  removes the spinner and labels the pending step Stopped.
+- Completed steps retain checkmarks; the next detected screen is revealed
+  automatically in actual execution order, without fixed step numbering.
+
 - Starts from the currently detected page: sign-in, OTP, document upload,
   mission/center, appointment button, informational Next popup, or available dates.
 - Watches DOM changes and also checks periodically for changes that do not

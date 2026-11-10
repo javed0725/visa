@@ -4,6 +4,19 @@ let automatorInterval = null;
 let isRunning = false;
 let uploadedFilesMap = { 1: null, 2: null, 3: null };
 let primarySlotKey = 1; // Default slot 1 is primary
+// Visual history follows observed actions, never a presumed serial sequence.
+const trackerHistory = [];
+let cleanupPending = false;
+const TRACKER_STEPS = [
+  { kind: 'signIn', key: 'signIn', id: 'step-sign-in', title: 'Sign in' },
+  { kind: 'otp', key: 'otpVerified', id: 'step-otp', title: 'Verify OTP' },
+  { kind: 'popups', key: 'popupsCleaned', id: 'step-popups', title: 'Clear popup' },
+  { kind: 'appointment', key: 'takeAppointmentClicked', id: 'step-take-app', title: 'Take appointment' },
+  { kind: 'upload', key: 'filesUploaded', id: 'step-upload', title: 'Upload documents' },
+  { kind: 'mission', key: 'missionSelected', id: 'step-mission', title: 'Mission / center' },
+  { kind: 'booking', key: 'slotBooked', id: 'step-booking', title: 'Book slot' },
+  { kind: 'next', key: null, id: 'step-next', title: 'Continue popup' }
+];
 
 // Step Completion Tracking State
 let stepStatus = {
@@ -57,6 +70,29 @@ function createFloatingPanel() {
 
     const panelHTML = `
       <div id="visa-automator-floating-panel" style="position: fixed; top: ${posY}; right: ${isRight}; left: ${posX}; width: 390px; background: #0c0d12; color: #fff; z-index: 999999; border-radius: 14px; box-shadow: 0 15px 40px rgba(0,0,0,0.8); font-family: sans-serif; border: 1px solid #1f2030;">
+        <style>
+          #visa-step-list > div:not([data-state]) { display: none !important; }
+          #visa-step-list > div[data-state] {
+            display: flex; gap: 8px; min-height: 28px;
+            border: 1px solid transparent; animation: va-step-reveal .18s ease-out;
+          }
+          #visa-step-list > div[data-state="active"] {
+            border-color: #00b35966; background: #00b35912 !important;
+          }
+          #visa-step-list .va-step-spinner {
+            display: inline-block; width: 10px; height: 10px; margin-left: 5px;
+            border: 2px solid #00b35944; border-top-color: #00ff88;
+            border-radius: 50%; vertical-align: middle; animation: va-step-spin .8s linear infinite;
+          }
+          #visa-step-list .va-step-state { margin-left: 8px; font-size: 9px; color: #9299a8; font-weight: normal; }
+          #visa-step-list > div[data-state="complete"] .va-step-state { color: #00c47b; }
+          #visa-step-list button:disabled { opacity: .45; cursor: default !important; }
+          @keyframes va-step-spin { to { transform: rotate(360deg); } }
+          @keyframes va-step-reveal { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+          @media (prefers-reduced-motion: reduce) {
+            #visa-step-list > div[data-state], #visa-step-list .va-step-spinner { animation: none; }
+          }
+        </style>
         
         <!-- Top Header / Branding -->
         <div id="panel-header" style="background: #13141d; padding: 10px 14px; cursor: move; display: flex; justify-content: space-between; align-items: center; border-top-left-radius: 14px; border-top-right-radius: 14px; border-bottom: 1px solid #1f2030;">
@@ -163,11 +199,12 @@ function createFloatingPanel() {
             <!-- INTEGRATED MANUAL SECTION & STEP PUSH BUTTONS WITH "TAKE APPOINTMENT" -->
             <div style="background: #13141d; padding: 10px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #1f2030;">
               <div style="font-size: 10px; font-weight: bold; color: #00ff88; margin-bottom: 6px; display: flex; justify-content: space-between;">
-                <span>🛠 MANUAL STEP CONTROLLER & PUSH</span>
+                <span>WORKFLOW PROGRESS</span>
                 <span id="manual-file-quick-status" style="color: #aaa; font-weight: normal;">Files: 0/3</span>
               </div>
               
-              <div style="display: flex; flex-direction: column; gap: 5px; font-size: 11px;">
+              <p id="visa-step-empty" role="status" style="color: #9299a8; font-size: 11px; margin: 8px 0;">Press Start to detect the current step.</p>
+              <div id="visa-step-list" aria-label="Workflow progress" style="display: flex; flex-direction: column; gap: 5px; font-size: 11px;">
                 <!-- Step 1 -->
                 <div style="display: flex; justify-content: space-between; align-items: center; background: #161722; padding: 4px 8px; border-radius: 5px;">
                   <span style="color: #ccc;">1. Sign In <b id="step-sign-in" style="color: #666;">⏳</b></span>
@@ -476,30 +513,67 @@ function updateSlotDisplayStatus() {
 }
 
 function updateStepTrackerUI() {
-  const map = [
-    { key: 'signIn', id: 'step-sign-in' },
-    { key: 'otpVerified', id: 'step-otp' },
-    { key: 'popupsCleaned', id: 'step-popups' },
-    { key: 'takeAppointmentClicked', id: 'step-take-app' },
-    { key: 'filesUploaded', id: 'step-upload' },
-    { key: 'missionSelected', id: 'step-mission' },
-    { key: 'slotBooked', id: 'step-booking' }
-  ];
-
-  map.forEach(item => {
+  const list = document.getElementById('visa-step-list');
+  if (!list) return;
+  // The extra Next dialog has no manual action and is created only when needed.
+  if (!document.getElementById('step-next') && trackerHistory.includes('next')) {
+    const row = document.createElement('div');
+    row.style.cssText = 'padding: 4px 8px; border-radius: 5px; justify-content: space-between; align-items: center;';
+    const text = document.createElement('span');
+    text.appendChild(document.createTextNode('Continue popup '));
+    const indicator = document.createElement('b');
+    indicator.id = 'step-next';
+    text.appendChild(indicator);
+    row.appendChild(text);
+    list.appendChild(row);
+  }
+  const current = cleanupPending ? 'popups' : popupContinuation?.kind || activeStep?.kind;
+  let visibleCount = 0;
+  TRACKER_STEPS.forEach(item => {
     const elem = document.getElementById(item.id);
-    if (elem) {
-      if (stepStatus[item.key]) {
-        elem.innerText = '✓';
-        elem.style.color = '#00ff88';
-        elem.style.fontWeight = 'bold';
-      } else {
-        elem.innerText = '⏳';
-        elem.style.color = '#666';
-      }
+    if (!elem) return;
+    const row = elem.parentElement.parentElement;
+    const complete = item.key ? stepStatus[item.key] : trackerNextComplete;
+    const reached = trackerHistory.includes(item.kind);
+    const isCurrent = item.kind === current;
+    const suspended = item.kind === activeStep?.kind && !isCurrent;
+    const shown = reached && (complete || isCurrent || suspended);
+    if (!shown) { delete row.dataset.state; return; }
+    visibleCount++;
+    row.style.order = trackerHistory.indexOf(item.kind);
+    row.dataset.state = complete && !isCurrent ? 'complete' : isCurrent ? 'active' : 'waiting';
+    const working = isCurrent && isRunning;
+    row.setAttribute('aria-busy', String(working));
+    elem.parentElement.firstChild.textContent = `${item.title} `;
+    elem.textContent = complete && !isCurrent ? '✓' : working ? '' : '•';
+    elem.className = working ? 'va-step-spinner' : '';
+    elem.style.color = '#00ff88';
+    elem.setAttribute('aria-hidden', 'true');
+    let stateLabel = row.querySelector('.va-step-state');
+    if (!stateLabel) {
+      stateLabel = document.createElement('small');
+      stateLabel.className = 'va-step-state';
+      elem.parentElement.appendChild(stateLabel);
+    }
+    stateLabel.textContent = complete && !isCurrent ? 'Completed' : suspended ? 'Waiting' : working ? 'Working…' : 'Stopped';
+    const push = row.querySelector('button');
+    if (push) {
+      push.hidden = !!complete || suspended;
+      push.disabled = working;
+      push.setAttribute('aria-label', `Run ${item.title.toLowerCase()}`);
     }
   });
+  const empty = document.getElementById('visa-step-empty');
+  if (empty) {
+    empty.hidden = visibleCount > 0;
+    empty.textContent = isRunning ? 'Scanning the page for the current step…' : 'Press Start to detect the current step.';
+  }
 }
+
+function revealTrackerStep(kind) {
+  if (!trackerHistory.includes(kind)) trackerHistory.push(kind);
+}
+let trackerNextComplete = false;
 
 function logMessage(msg) {
   const logBox = document.querySelector('#view-run > div:last-child');
@@ -534,6 +608,7 @@ function startAutomation() {
     subtree: true, childList: true, attributes: true,
     attributeFilter: ['class', 'style', 'hidden', 'disabled', 'aria-busy', 'aria-checked', 'data-status']
   });
+  updateStepTrackerUI();
   scheduleWorkflow(0);
 }
 
@@ -544,6 +619,7 @@ function stopAutomation() {
   workflowObserver?.disconnect();
   workflowObserver = null;
   chrome.storage.local.set({ automatorRunning: false });
+  updateStepTrackerUI();
   logMessage('Automation stopped.');
 }
 
@@ -692,7 +768,12 @@ function executePopupCleanup() {
     }
   }
   stepStatus.popupsCleaned = all(PAGE.dialogs).length === 0;
-  if (closed) logMessage('Dismissed a non-workflow popup.');
+  if (closed) {
+    cleanupPending = true;
+    revealTrackerStep('popups');
+    logMessage('Dismissed a non-workflow popup.');
+  } else if (stepStatus.popupsCleaned) cleanupPending = false;
+  updateStepTrackerUI();
   return closed;
 }
 
@@ -734,6 +815,8 @@ function detectSteps() {
 }
 function status(kind, done) {
   if (STATUS_KEY[kind]) stepStatus[STATUS_KEY[kind]] = done;
+  if (kind === 'next') trackerNextComplete = done;
+  revealTrackerStep(kind);
   updateStepTrackerUI();
 }
 function newStep(candidate) {
@@ -909,6 +992,10 @@ function executeWorkflowSteps(requestedKind = null) {
       performStep(popupContinuation);
       activeStep.absentSince = 0;
       return true;
+    }
+    if (popupContinuation?.submitted && !nextPopup) {
+      trackerNextComplete = true;
+      revealTrackerStep('next');
     }
     popupContinuation = null;
     if (activeStep) {
