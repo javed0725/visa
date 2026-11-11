@@ -7,19 +7,38 @@ public final class OtpParserTest {
         count++;
     }
     public static void main(String[] args) {
-        check("123456","IVAC","Your OTP is 123456.");
-        check("234567","IVAC-BD","234567 is your verification code.");
-        check("345678","INFO","Indian Visa appointment OTP: 345678 valid for 2 minutes.");
+        String prompt="For security, type the following sequence when prompted ";
+        check("027922","IVACBD",prompt+"Zero_Two_Seven_Nine_Two_Two");
+        check("027922","INFO","(IVACBD) "+prompt+"Zero Two Seven Nine Two Two.");
+        check("012345","IVACBD",prompt+"[Zero_One_Two_Three_Four_Five]");
+        check("678901","IVACBD",prompt+"Six Seven Eight Nine Zero One");
+        check("000000","IVACBD",prompt+"Zero Zero Zero Zero Zero Zero");
+        check("999999","IVACBD",prompt+"Nine_Nine_Nine_Nine_Nine_Nine");
+        check("027922","ivacbd",prompt.toUpperCase()+"zero_TWO_seven_NINE_two_TWO");
+        check("027922","IVACBD",prompt+"Zero_Two Seven\tNine\nTwo_Two");
+        check("027922",null,prompt+"Zero Two Seven Nine Two Two\n(IVACBD)");
+        check("027922","IVACBD",prompt+": [ Zero Two Seven Nine Two Two ].");
+        check(null,"BANK",prompt+"Zero Two Seven Nine Two Two");
+        check(null,"IVAC",prompt+"Zero Two Seven Nine Two Two");
+        check(null,"NOTIVACBD",prompt+"Zero Two Seven Nine Two Two");
+        check(null,"IVACBDFAKE",prompt+"Zero Two Seven Nine Two Two");
+        check(null,"INFO","NOTIVACBD "+prompt+"Zero Two Seven Nine Two Two");
         check(null,"BANK","Visa card OTP 123456 for online payment.");
-        check(null,"BANK","Your OTP is 123456.");
-        check(null,"IVAC","Your application number is 123456.");
-        check(null,"IVAC","OTP is 12345.");
-        check(null,"IVAC","OTP is 1234567.");
-        check("567890","IVAC","Application 123456. Your OTP is 567890.");
-        check(null,"IVAC","Verify numbers 123456 and 654321.");
+        check(null,"IVACBD","Your OTP is 123456.");
+        check(null,"IVACBD",prompt+"027922");
+        check(null,"IVACBD","Zero Two Seven Nine Two Two");
+        check(null,"IVACBD",prompt+"Zero Two Seven Nine Two");
+        check(null,"IVACBD",prompt+"Zero Two Seven Nine Two Two One");
+        check(null,"IVACBD",prompt+"Zero_Two_Seven_Nine_Two_Two_One");
+        check(null,"IVACBD",prompt+"Zero Two Seven Nine Two Banana");
+        check(null,"IVACBD",prompt+"Zero_Two_Seven_Nine_Two_Two_Banana");
+        check(null,"IVACBD",prompt+"Zero Two Seven Nine Two Two1");
+        check(null,"IVACBD",prompt+"Zero Two Seven Nine Two Twos");
+        check(null,"IVACBD",prompt+"Zero-Two-Seven-Nine-Two-Two");
+        check(null,"IVACBD",prompt+"[Zero Two Seven Nine Two Two");
+        check(null,"IVACBD",prompt+"Zero Two Seven Nine Two Two. "+prompt+"One Two Three Four Five Six");
         check(null,null,null);
-        check(null,"IVAC","OTP for application 123456 is 654321.");
-        check("456789","IVAC","Your OTP code is: 456789.");
+        check(null,"IVACBD","");
         System.out.println("Passed "+count+" SMS parser checks.");
     }
 }

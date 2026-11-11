@@ -114,11 +114,16 @@ with `ANDROID_HOME` or a local `local.properties` file (never commit that file).
 For distribution beyond private testing, create your own release signing
 configuration securely; do not reuse the debug signing key.
 
-Incoming multipart SMS is combined before filtering. The receiver only considers
-IVAC/Indian-visa/visa-application/appointment messages with an OTP context; a
-generic Visa bank-card SMS is not enough. Six contiguous digits are required.
-Ambiguous messages with multiple unlabelled numbers are ignored. Filtering rules
-live in `OtpParser.java`; actual IVAC message wording may require adjustment.
+Incoming multipart SMS is combined before filtering. The receiver requires an
+`IVACBD` signature in the sender/header or message body and the phrase
+`For security, type the following sequence when prompted`, followed by exactly
+six number words. Underscores, spaces, mixed separators and case differences are
+accepted; brackets around the sequence are optional. For example,
+`Zero_Two_Seven_Nine_Two_Two` becomes the string `027922`, preserving the leading
+zero. Numeric-only OTP messages, unrelated messages, incomplete sequences and
+multiple matching sequences are ignored. Only the converted code and delivery
+metadata are forwarded under the paired Client Key; the SMS body is not uploaded.
+Filtering rules live in `OtpParser.java`.
 
 If nothing arrives:
 

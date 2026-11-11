@@ -48,7 +48,7 @@ public final class MainActivity extends Activity {
         pair=button(layout,"Pair phone",v->pairPhone());
         status=text(layout,"Not paired",14,Color.WHITE);
         text(layout,"2  ALLOW INCOMING VISA OTPs",12,green);
-        text(layout,"With your permission, this app checks incoming SMS on this phone for IVAC/visa OTPs. It sends only the six-digit code and delivery metadata to your chosen relay. No SMS history, full message text, phone number, or unrelated messages are uploaded.",13,Color.LTGRAY);
+        text(layout,"With your permission, this app checks incoming SMS for the IVACBD security-sequence message. It converts six number words into digits and sends only that code and delivery metadata to your chosen relay. No SMS history, full message text, phone number, or unrelated messages are uploaded.",13,Color.LTGRAY);
         permissions=text(layout,"SMS access not yet granted",13,green);
         button(layout,"Grant SMS access",v->new AlertDialog.Builder(this).setTitle("Allow visa OTP forwarding?")
             .setMessage("Enable only on a phone you own. Incoming SMS will be filtered locally for visa OTPs. Only matching six-digit codes are forwarded to your paired browser. You can stop this at any time by unpairing or revoking SMS access in Android settings.")
