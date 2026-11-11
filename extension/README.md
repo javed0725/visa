@@ -82,6 +82,24 @@ code, but never automatically retries the same code.
 
 ## Changes
 
+### Live workflow fixes (2.1.0)
+
+- OTP reads run every 500ms while actively waiting, with no overlapping network
+  requests. Concurrent authorized worker reads share one result. Network/phone
+  scheduling still adds latency; this is not a guarantee of instant SMS delivery.
+- Recognizes **Next Step**, **Confirm All Information is Correct**,
+  **Save & Continue**, and **Confirm Mission & IVAC Center**.
+- Preserves required confirmation dialogs instead of dismissing their Close button.
+  Recognized next-step modals no longer block completion of the previous screen.
+- Supports native center selects and accessible custom combobox/listbox controls,
+  without changing the preselected mission.
+- Calendar discovery includes plain numeric day buttons, accessible calendars and
+  existing available-day selectors. Disabled dates remain excluded. Continue is
+  attempted after date selection without a fixed wait; failed attempts rotate
+  middle-first with at least 20 seconds after Continue before another date.
+- Upload continuation still requires each loaded document's server acknowledgment
+  and a completed host CAPTCHA response. Reaching payment stops the extension.
+
 - Start checks the page immediately. A landing-page Sign In link is opened when
   the credentials form is not yet visible; saved phone/password are then filled.
 - The normal flow is Sign In → OTP → Take Your Appointment → Next → documents →

@@ -1,8 +1,7 @@
 // Chrome Manifest V3 worker. Workflow and controls live in content.js.
 const APPOINTMENT_URL = 'https://appointment.ivacbd.com/';
 importScripts('phone-relay.js');
-let otpRequestPending = false;
-let otpController = null;
+let otpRequest = null;
 let resetting = false;
 
 chrome.action.onClicked.addListener(async tab => {
@@ -65,7 +64,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       try {
         await PhoneRelay.serial(async () => {
-          otpController?.abort();
           let warning;
           try { await PhoneRelay.reset(); }
           catch { warning = 'Local data cleared, but the relay could not be reached to unpair. Unpair in the Android app too.'; }
@@ -85,22 +83,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ ok: false, error: 'Keep the IVAC OTP tab active to receive a code.' });
     return false;
   }
-  if (otpRequestPending) {
-    sendResponse({ ok: false, error: 'An OTP request is already running.' });
-    return false;
+  // Share an in-flight read rather than turning simultaneous panel/automatic
+  // reads into errors that trigger the content script's long error backoff.
+  if (!otpRequest) {
+    otpRequest = PhoneRelay.fetchOTP()
+      .then(data => ({ ok: true, data }), error => ({ ok: false, error: error.message }))
+      .finally(() => { otpRequest = null; });
   }
-  otpRequestPending = true;
-  otpController = new AbortController();
-  (async () => {
-    try {
-      const data = await PhoneRelay.fetchOTP();
-      sendResponse({ ok: true, data });
-    } catch (error) {
-      sendResponse({ ok: false, error: error.message });
-    } finally {
-      otpRequestPending = false;
-      otpController = null;
-    }
-  })();
+  otpRequest.then(sendResponse);
   return true;
 });

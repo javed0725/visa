@@ -2,7 +2,7 @@
 
 ## Downloads
 
-- **visa-automator-pro-chrome.zip**: complete Chrome extension, version 2.0.
+- **visa-automator-pro-chrome.zip**: complete Chrome extension, version 2.1.
   Extract and load the directory containing `manifest.json` at
   `chrome://extensions` → Developer mode → Load unpacked.
 - **visa-otp-companion-debug.apk**: native Android companion, Android 8 or newer.
@@ -26,6 +26,9 @@
 4. Keep the IVAC OTP tab active and press **Start**. A matching incoming SMS is
    filtered on the phone, its six-digit code is relayed, and the extension fills
    the OTP field, dispatches input/change events, and clicks Verify once.
+   While waiting on the active OTP page, the extension polls every 500ms after
+   each response (with one request in flight). Phone/network delays can still
+   affect delivery; failures use a slower retry backoff rather than request spam.
 
 Manual typing/pasting and manual website Verify remain supported. Automatic
 receipt does not override a user who has started entering the OTP manually.

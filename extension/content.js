@@ -23,6 +23,7 @@ const TRACKER_STEPS = [
   { kind: 'popups', key: 'popupsCleaned', id: 'step-popups', title: 'Clear popup' },
   { kind: 'appointment', key: 'takeAppointmentClicked', id: 'step-take-app', title: 'Take appointment' },
   { kind: 'upload', key: 'filesUploaded', id: 'step-upload', title: 'Upload documents' },
+  { kind: 'details', key: null, title: 'Confirm applicant details' },
   { kind: 'mission', key: 'missionSelected', id: 'step-mission', title: 'Mission / center' },
   { kind: 'booking', key: 'slotBooked', id: 'step-booking', title: 'Book slot' },
   { kind: 'next', key: null, id: 'step-next', title: 'Continue popup' }
@@ -100,7 +101,7 @@ function createFloatingPanel() {
           <div style="display: flex; align-items: center; gap: 8px;">
             <span style="background: #ffcc00; width: 8px; height: 8px; border-radius: 50%;"></span>
             <span style="font-weight: bold; font-size: 13px; letter-spacing: 0.5px;">Visa Automator</span>
-            <span style="font-size: 9px; background: #ffcc0022; color: #ffcc00; padding: 2px 6px; border-radius: 4px;">PRO 2.0</span>
+            <span style="font-size: 9px; background: #ffcc0022; color: #ffcc00; padding: 2px 6px; border-radius: 4px;">PRO 2.1</span>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
             <button id="reset-panel" title="Stop automation and erase all saved extension data" style="background: #34202a; border: 1px solid #774052; color: #ffb4be; padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 9px;">RESET</button>
@@ -780,7 +781,8 @@ function pollOTPFromBackground(automatic = false) {
   const revision = session.revision;
   const requestVersion = ++otpRequestVersion;
   session.fetchPending = true;
-  session.nextFetchAt = Date.now() + 2000;
+  // 120 requests/minute stays below the relay's 180/minute browser limit.
+  session.nextFetchAt = Date.now() + 500;
   const failed = () => {
     session.fetchFailures++;
     session.nextFetchAt = Date.now() + Math.min(20000, 5000 * 2 ** Math.min(session.fetchFailures, 2));
@@ -802,6 +804,8 @@ function pollOTPFromBackground(automatic = false) {
         return;
       }
       session.fetchFailures = 0;
+      session.nextFetchAt = Date.now() + 500;
+      if (automatic && isRunning) scheduleWorkflow(500);
       const data = response.data;
       if (data && data.success && data.otp) {
         const code = otpCode(data.otp);
@@ -918,7 +922,7 @@ function executeSlotBooking() { return runManualStep('booking'); }
 // Selectors are deliberately conservative. Add actual site-specific success/error
 // selectors here rather than guessing success from a click or an arbitrary tick.
 const PAGE = {
-  dialogs: 'dialog[open], [role="dialog"], [role="alertdialog"], [aria-modal="true"], .modal, .popup, .popup-overlay, .dialog, .swal2-popup, .swal-modal, .ant-modal, .MuiDialog-root, [data-state="open"][data-dialog]',
+  dialogs: 'dialog[open], [role="dialog"], [role="alertdialog"], [aria-modal="true"], .modal, .popup, .popup-overlay, .dialog, .swal2-popup, .swal-modal, .ant-modal, .MuiDialog-root, [data-state="open"][data-dialog], .fixed.inset-0',
   otp: 'input[name*="otp" i], input[placeholder*="otp" i], input[aria-label*="otp" i], input#otp, input[autocomplete="one-time-code"]',
   otpOK: '[data-otp-status="verified"], [data-otp-status="success"], #otp-success, .otp-success',
   otpError: '[data-otp-status="error"], [data-otp-status="expired"], .otp-error, #otp-error',
@@ -971,7 +975,7 @@ function button(pattern, root = document) {
     .find(el => pattern.test(label(el))) || null;
 }
 function scopeOf(el) {
-  return el?.closest('form, [role="dialog"], dialog, .swal2-popup, .ant-modal, .MuiDialog-root, [data-step], .card') ||
+  return el?.closest(`form, ${PAGE.dialogs}, [data-step], .card`) ||
     document.body;
 }
 function busy(root = document) { return !!first(PAGE.busy, root); }
@@ -1003,6 +1007,14 @@ function scheduleWorkflow(delay = 700) {
   }, delay);
 }
 
+const NEXT_LABEL = /^next(?: step)?$/i;
+const DETAILS_LABEL = /^save\s*(?:and|&)\s*continue$/i;
+const CENTER_CONFIRM_LABEL = /^confirm mission\s*(?:&|and)\s*ivac center$/i;
+function workflowDialog(root) {
+  return !!button(NEXT_LABEL, root) || !!button(DETAILS_LABEL, root) ||
+    !!button(/^confirm all information is correct$/i, root) ||
+    !!button(CENTER_CONFIRM_LABEL, root) || !!button(/^continue booking$/i, root);
+}
 function hasWorkflowControls(root) {
   return !!first(`${PAGE.otp}, ${PAGE.phone}, input[type="password"], ${PAGE.mission}, ${PAGE.center}`, root) ||
     fileInputs(root).length > 0 || !!first(PAGE.captcha, root);
@@ -1012,7 +1024,7 @@ function executePopupCleanup() {
   const dialogs = all(PAGE.dialogs).reverse();
   for (const dialog of dialogs) {
     // Never destroy a live OTP, CAPTCHA, document or other data-entry form.
-    if (hasWorkflowControls(dialog) || first('input:not([type="hidden"]), select, textarea', dialog)) continue;
+    if (workflowDialog(dialog) || hasWorkflowControls(dialog) || first('input:not([type="hidden"]), select, textarea', dialog)) continue;
     const dismiss = all('button, a, [role="button"]', dialog).find(el =>
       /^(close|cancel|dismiss|not now|no thanks|ok|okay|got it|×|✕|x)$/i.test(label(el)) ||
       el.matches('.modal-close, .swal2-close, [data-dismiss="modal"], [data-bs-dismiss="modal"]'));
@@ -1021,7 +1033,7 @@ function executePopupCleanup() {
   // Standalone close controls, but never unrelated position:absolute buttons.
   for (const el of all('.modal-close, button[aria-label="Close"], button[aria-label="Dismiss"], [data-bs-dismiss="modal"], [data-dismiss="modal"]')) {
     const host = el.closest(PAGE.dialogs);
-    if (host && !hasWorkflowControls(host) && !first('input:not([type="hidden"]), select, textarea', host)) {
+    if (host && !workflowDialog(host) && !hasWorkflowControls(host) && !first('input:not([type="hidden"]), select, textarea', host)) {
       if (click(el, 1200)) closed = true;
     }
   }
@@ -1058,15 +1070,16 @@ function detectSteps() {
   add('signIn', first('input[type="password"]') || all(PAGE.phone).find(el => !el.matches(PAGE.otp)));
   const uploads = fileInputs();
   add('upload', uploads[0] || button(/^confirm all information is correct/i));
-  const missionControl = first(PAGE.mission) || first(PAGE.center);
+  const missionControl = first(PAGE.mission) || first(PAGE.center) || customCenter() || button(CENTER_CONFIRM_LABEL);
   if (missionControl && !first(PAGE.missionOK, scopeOf(missionControl))) add('mission', missionControl);
   add('appointment', button(/^take your appointment\b/i));
   add('booking', first(PAGE.dates) || button(/^continue booking$/i));
-  if (!steps.length) add('next', button(/^next$/i));
+  add('details', button(DETAILS_LABEL));
+  if (!steps.length) add('next', button(NEXT_LABEL));
   if (!steps.length) add('login', button(/^sign in(?: now)?$|^log in$|^login$/i));
   for (const dialog of all(PAGE.dialogs).reverse()) {
     if (!hasWorkflowControls(dialog)) {
-      const next = button(/^next$/i, dialog);
+      const next = button(NEXT_LABEL, dialog);
       if (next) { steps.unshift({ kind: 'next', el: next, root: dialog, interruption: true }); break; }
     }
   }
@@ -1138,6 +1151,10 @@ function performStep(step) {
       break;
     case 'next':
       updateStage('Next', '55%', 'Opening the next page before document upload.');
+      submitStep(step, step.el);
+      break;
+    case 'details':
+      updateStage('Confirm details', '82%', 'Saving the confirmed applicant details before center selection.');
       submitStep(step, step.el);
       break;
     case 'upload':
@@ -1260,6 +1277,12 @@ function usableOption(option) {
   return !!option && !option.disabled && !option.parentElement?.disabled &&
     !!String(option.value).trim() && !/^(select|choose|loading|no .+available|--)/i.test(option.textContent.trim());
 }
+function customCenter(root = document) {
+  return all('[role="combobox"], button, [role="button"]', root).find(el =>
+    /ivac\s*cent(?:er|re)/i.test(
+      `${el.getAttribute('aria-label') || ''} ${el.getAttribute('name') || ''} ${label(el)}`
+    ) && !CENTER_CONFIRM_LABEL.test(label(el))) || null;
+}
 function performMissionSelection(step) {
   updateStage('Mission / center', '90%', 'Keeping the selected mission and choosing an available IVAC center.');
   if (first(PAGE.missionOK, step.root)) {
@@ -1273,21 +1296,57 @@ function performMissionSelection(step) {
     return;
   }
   const center = first(PAGE.center, step.root);
-  if (!center || center.disabled || center.matches?.(':disabled, [aria-disabled="true"]')) return;
+  if (!center) {
+    const control = customCenter(step.root) ||
+      (step.centerControl?.isConnected && visible(step.centerControl) ? step.centerControl : null);
+    if (!control || !enabled(control)) return;
+    step.centerControl = control;
+    const wanted = document.getElementById('config-center')?.value;
+    const listId = control.getAttribute('aria-controls');
+    const list = listId ? document.getElementById(listId) : first('[role="listbox"]');
+    const options = list ? all('[role="option"]', list).filter(el => enabled(el) &&
+      !/^(select|choose|loading|no .+available)/i.test(label(el))) : [];
+    if (options.length) {
+      const option = wanted ?
+        options.find(el => label(el) === wanted || el.getAttribute('data-value') === wanted) : options[0];
+      if (!option) {
+        updateStage('Mission / center', '85%', 'Waiting for the configured IVAC center; no substitute center will be submitted.');
+        return;
+      }
+      if (click(option)) {
+        step.centerChoice = label(option);
+        step.nextTry = Date.now() + 100;
+      }
+      return;
+    }
+    // Require the selected center to appear on the control before confirmation.
+    const selected = step.centerChoice && label(control).includes(step.centerChoice);
+    if (selected || (!/select\s+(?:your\s+)?ivac\s*cent(?:er|re)/i.test(label(control)) &&
+        control.getAttribute('data-state') === 'closed' && control.getAttribute('data-value'))) {
+      submitStep(step, button(CENTER_CONFIRM_LABEL, step.root));
+    } else click(control, 1500);
+    return;
+  }
+  if (center.disabled || center.matches?.(':disabled, [aria-disabled="true"]')) return;
   const available = Array.from(center.options).filter(usableOption);
   if (!available.length) {
     updateStage('Mission / center', '85%', 'Waiting for an available IVAC center to load.');
     return;
   }
-  if (!usableOption(center.options[center.selectedIndex])) {
-    const wanted = document.getElementById('config-center')?.value;
-    const option = available.find(o => o.value === wanted || o.textContent.trim() === wanted) || available[0];
-    setValue(center, option.value);
-    step.submitted = true; // onchange may itself navigate to the next screen.
-    step.nextTry = Date.now() + 700;
+  const wanted = document.getElementById('config-center')?.value;
+  const required = wanted ? available.find(o => o.value === wanted || o.textContent.trim() === wanted) : null;
+  if (wanted && !required) {
+    updateStage('Mission / center', '85%', 'Waiting for the configured IVAC center; no substitute center will be submitted.');
     return;
   }
-  submitStep(step, button(/^save\s*(?:and|&)\s*continue$|^confirm mission(?: & ivac center)?$|^continue$|^next$|^proceed$/i, step.root));
+  if (!usableOption(center.options[center.selectedIndex]) || (required && center.value !== required.value)) {
+    const option = required || available[0];
+    setValue(center, option.value);
+    step.submitted = true; // onchange may itself navigate to the next screen.
+    step.nextTry = Date.now() + 100;
+    return;
+  }
+  submitStep(step, button(/^save\s*(?:and|&)\s*continue$|^confirm mission(?:\s*(?:&|and)\s*ivac center)?$|^continue$|^next$|^proceed$/i, step.root));
 }
 const SLOT_RETRY_MS = 20000;
 function paymentStageReached() {
@@ -1333,6 +1392,20 @@ function persistCalendarRetry(state) {
   };
   chrome.storage.local.set({ calendarRetry: calendarResume });
 }
+function availableCalendarDates(root) {
+  const explicit = all(PAGE.dates, root);
+  const standard = all(
+    '[role="gridcell"] button, button[name="day"], button[data-day], ' +
+    '.react-datepicker__day:not(.react-datepicker__day--disabled):not(.react-datepicker__day--outside-month), ' +
+    '.rdp-day button, [role="grid"] button, .calendar button, ' +
+    '[data-calendar] [role="button"], button[aria-label*="202" i]', root);
+  // The supplied page has plain numeric day buttons, not .available classes.
+  const plain = button(/^continue booking$/i, root) ?
+    all('button, [role="button"]', root).filter(el => /^(?:[1-9]|[12][0-9]|3[01])$/.test(label(el))) : [];
+  return [...new Set([...explicit, ...standard, ...plain])].filter(el => enabled(el) &&
+    !el.closest('.disabled, .p-disabled, [aria-disabled="true"], [disabled], [data-disabled="true"], [data-outside="true"]') &&
+    !el.matches?.('.react-datepicker__day--disabled, .react-datepicker__day--outside-month') && label(el));
+}
 function performCalendarSearch(step) {
   if (paymentStageReached()) { finishAtPayment(); return; }
   if (!step.calendar) step.calendar = {
@@ -1343,8 +1416,7 @@ function performCalendarSearch(step) {
   };
   const state = step.calendar;
   const now = Date.now();
-  const available = all(PAGE.dates).filter(el => enabled(el) &&
-    !el.closest('.disabled, .p-disabled, [aria-disabled="true"]') && label(el));
+  const available = availableCalendarDates(step.root);
   const dates = [...new Map(available.map(el => [calendarDateKey(el), el])).values()];
   const count = document.getElementById('metric-dates');
   if (count) count.innerText = dates.length;
@@ -1385,7 +1457,7 @@ function performCalendarSearch(step) {
   state.selected = key;
   state.continueSent = false;
   state.attempts++;
-  state.readyAt = now + 500;
+  state.readyAt = now;
   state.nextAttemptAt = now + SLOT_RETRY_MS;
   persistCalendarRetry(state);
   const cycle = document.getElementById('metric-cycle');
@@ -1393,6 +1465,8 @@ function performCalendarSearch(step) {
   const next = document.getElementById('metric-next');
   if (next) next.innerText = '20s';
   updateStage('Calendar search', '95%', `Selected an available date from the middle-first list (attempt ${state.attempts}).`);
+  // Re-scan after the site's date-change handler; do not add a fixed half-second wait.
+  scheduleWorkflow(0);
 }
 function runManualStep(kind) {
   if (resetInProgress) return false;
@@ -1444,7 +1518,10 @@ function executeWorkflowSteps(requestedKind = null) {
       } else {
         const other = candidates.find(s => s.kind !== activeStep.kind &&
           (activeStep.kind !== 'otp' || !['otp', 'signIn', 'next'].includes(s.kind)));
-        const blocked = all(PAGE.dialogs).length > 0 || busy() || captchaPending();
+        // The next workflow screen is itself often a modal. Only unrelated
+        // overlays block the transition, not the modal containing that screen.
+        const blocked = all(PAGE.dialogs).some(dialog => !other || !dialog.contains(other.el)) ||
+          busy() || captchaPending();
         if (activeStep.kind === 'booking' && first(PAGE.booked)) {
           status('booking', true);
           activeStep = null;
@@ -1496,7 +1573,7 @@ function executeWorkflowSteps(requestedKind = null) {
   } finally {
     executing = false;
     updateStepTrackerUI();
-    scheduleWorkflow();
+    scheduleWorkflow(activeStep?.kind === 'otp' && !otpSession?.submitted ? 100 : 300);
   }
 }
 

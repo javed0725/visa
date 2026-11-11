@@ -70,3 +70,17 @@ mtime_ms = 1794379405961
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c95153f8-4120-4f5d-9b29-b3fd42034cff/051d717c-4eaa-4f23-a963-e9ab4d7e3565/e4ceb3eb-08da-4c93-ad93-0613cf555bc5"
 storage_version_token = "1794379418965665"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "rxtbbCSyt7UyituflffGM"
+uri = "file://generated-artifacts/visa-automator-pro-chrome-2.1.0.zip"
+type = "unspecified"
+title = "Visa Automator Pro — Chrome Extension 2.1.0"
+description = "Complete loadable Chrome extension with faster OTP polling, required dialog actions, center dropdown selection and middle-first calendar retries. Extract before using Load unpacked."
+logical_id = "b7b183ab-965b-4495-97db-e53bd63ee66d"
+content_hash = "sha256:d47fbad70b338f1b59bcdfd4cb5b1739cbf556839546b53316b1110b01205874"
+size = 36092
+mtime_ms = 1794381096157
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c95153f8-4120-4f5d-9b29-b3fd42034cff/b7b183ab-965b-4495-97db-e53bd63ee66d/9ea1a4d9-9843-403a-9f9a-e9d8dd53652b"
+storage_version_token = "1794381126841166"
+content_type = "application/octet-stream"

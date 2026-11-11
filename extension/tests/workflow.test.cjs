@@ -443,6 +443,21 @@ test('waiting for SMS uses paced polling with no overlapping fetch requests', ()
   assert.equal(e.run('clicks.length'), 0);
 });
 
+test('phone polling checks again after 500ms and keeps leading-zero OTP submission single-attempt', () => {
+  const e = otpEngine();
+  e.run(`isRunning=true; performOTP(activeStep); messages[0].callback({ok:true,data:{success:false}});`);
+  e.advance(499);
+  e.run('performOTP(activeStep);');
+  assert.equal(e.run('messages.length'), 1);
+  e.advance(1);
+  e.run(`performOTP(activeStep); messages[1].callback({ok:true,data:{success:true,otp:'027922'}}); performOTP(activeStep);`);
+  assert.equal(e.run('otpField.value'), '027922');
+  assert.equal(e.run('clicks.length'), 1);
+  e.advance(2000);
+  e.run('performOTP(activeStep);');
+  assert.equal(e.run('clicks.length'), 1);
+});
+
 test('a late fetched OTP cannot overwrite a user typing on the website', () => {
   const e = otpEngine();
   e.run(`
@@ -553,6 +568,51 @@ test('plain Next is a real page step, not a popup interruption', () => {
   `);
   assert.equal(e.run('detected[0].kind'), 'next');
   assert.equal(e.run('!!detected[0].interruption'), false);
+});
+
+test('Next Step intro and Save & Continue details are detected by their exact live labels', () => {
+  for (const [text, kind] of [['Next Step','next'], ['Save & Continue','details']]) {
+    const e = engine();
+    e.run(`
+      fileInputs=()=>[]; first=()=>null;
+      var action={textContent:${JSON.stringify(text)},getAttribute:()=>null,closest:()=>null};
+      all=selector=>selector.startsWith('button') ? [action] : [];
+      var detected=originalDetectSteps();
+    `);
+    assert.equal(e.run('detected[0].kind'), kind);
+  }
+});
+
+test('required details popup is preserved even when it has a close button', () => {
+  const e = engine();
+  e.run(`
+    var detailsDialog={};
+    var save={textContent:'Save & Continue',getAttribute:()=>null};
+    var close={textContent:'Close',getAttribute:()=>null,closest:()=>detailsDialog};
+    all=selector=>selector===PAGE.dialogs ? [detailsDialog] :
+      selector==='button, a[href], input[type="submit"], input[type="button"], [role="button"]' ? [save] : [close];
+    first=()=>null; fileInputs=()=>[];
+    click=el=>{clicks.push(el);return true;};
+    originalPopupCleanup();
+  `);
+  assert.equal(e.run('clicks.length'), 0);
+});
+
+test('confirmed upload advances into the required details modal rather than being blocked by it', () => {
+  const e = engine();
+  e.run(`
+    pageCandidates=[sample('upload')]; executeWorkflowSteps();
+    activeStep.submitted=true; activeStep.uploadContinueSent=true;
+    activeStep.uploadRecords=[{done:true}];
+    pageCandidates=[sample('details')];
+    var detailsModal={contains:el=>el===pageCandidates[0].el};
+    all=selector=>selector===PAGE.dialogs ? [detailsModal] : [];
+    executeWorkflowSteps();
+  `);
+  e.advance(1300);
+  e.run('executeWorkflowSteps();');
+  assert.equal(e.run('activeStep.kind'), 'details');
+  assert.equal(e.run('stepStatus.filesUploaded'), true);
 });
 
 function uploadFlowEngine() {
@@ -686,6 +746,34 @@ test('mission selection waits while the center dropdown has no available options
   assert.equal(e.run('clicks.length'), 0);
 });
 
+test('mission selection waits rather than submitting a different configured center', () => {
+  const e = engine();
+  e.run(`
+    var mission={selectedIndex:0,options:[{value:'existing',textContent:'Existing mission'}]};
+    var center={value:'',selectedIndex:0,options:[{value:'',textContent:'Select IVAC center'},
+      {value:'other',textContent:'Other center'}]};
+    first=selector=>selector===PAGE.mission ? mission : selector===PAGE.center ? center : null;
+    document.getElementById=id=>id==='config-center' ? {value:'required-center'} : null;
+    setValue=()=>{throw Error('Wrong center must not be selected');};
+    submitStep=()=>{throw Error('Wrong center must not be confirmed');};
+    performMissionSelection(newStep(sample('mission')));
+  `);
+  assert.equal(e.run('center.value'), '');
+});
+
+test('native mission selection recognizes the exact Confirm Mission & IVAC Center action', () => {
+  const e = engine();
+  e.run(`
+    var center={value:'chosen',selectedIndex:0,options:[{value:'chosen',textContent:'Dhaka center'}]};
+    var confirm={textContent:'Confirm Mission & IVAC Center',getAttribute:()=>null};
+    first=selector=>selector===PAGE.center ? center : null;
+    all=selector=>selector.startsWith('button') ? [confirm] : [];
+    submitStep=(step,el)=>{if(el) clicks.push(el);};
+    performMissionSelection(newStep(sample('mission')));
+  `);
+  assert.equal(e.run('clicks.length'), 1);
+});
+
 function calendarEngine() {
   const e = engine();
   e.run(`
@@ -710,6 +798,18 @@ test('middle-first ordering covers every date before repeating', () => {
   assert.equal(e.run('JSON.stringify(middleOut([1,2,3,4,5]))'), '[3,4,2,5,1]');
   assert.equal(e.run('JSON.stringify(middleOut([1,2,3,4]))'), '[2,3,1,4]');
   assert.equal(e.run('JSON.stringify(middleOut([]))'), '[]');
+});
+
+test('calendar finds plain numeric buttons without requiring available CSS classes', () => {
+  const e = engine();
+  e.run(`
+    var cells=[1,2,3,4,5].map(n=>({textContent:String(n),disabled:n===1,
+      getAttribute:()=>null,closest:()=>null,matches:()=>false}));
+    all=selector=>selector==='button, [role="button"]' ? cells : [];
+    button=()=>({}); enabled=el=>!el.disabled;
+    var available=availableCalendarDates({});
+  `);
+  assert.equal(e.run('available.map(label).join(",")'), '2,3,4,5');
 });
 
 test('calendar starts in the middle and clicks Continue only once per attempt', () => {
