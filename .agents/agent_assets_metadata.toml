@@ -19,28 +19,28 @@ content_type = "application/octet-stream"
 id = "wnAZdhknMiiz419EAa9iy"
 uri = "file://generated-artifacts/visa-automator-pro-chrome.zip"
 type = "unspecified"
-title = "Chrome extension — Visa Automator Pro 2.0"
-description = "Complete unpacked-loadable extension with Phone OTP auto-fill, Client Key pairing, copy/regenerate controls, and setup instructions."
+title = "Chrome Extension"
+description = "For Chrome on your computer. Extract the ZIP, then load the extracted folder containing manifest.json using Load unpacked."
 logical_id = "5750f4db-aae8-4962-835c-76fa63643f88"
 content_hash = "sha256:0522695515bd48aca6c86778c9f068105e8399f04cb9500b5b9885933d688502"
 size = 34182
 mtime_ms = 1794342949893
-storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c95153f8-4120-4f5d-9b29-b3fd42034cff/5750f4db-aae8-4962-835c-76fa63643f88/be63db4d-6019-43d0-bad4-1b1611d3ff0e"
-storage_version_token = "1794342998602800"
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c95153f8-4120-4f5d-9b29-b3fd42034cff/5750f4db-aae8-4962-835c-76fa63643f88/616fafc4-1271-46cb-be6a-bf2d632c63dd"
+storage_version_token = "1794376984905037"
 content_type = "application/octet-stream"
 
 [[outputs]]
 id = "lG9PcULN9C2uiK4C5dBi9"
 uri = "file://generated-artifacts/visa-otp-companion-debug.apk"
 type = "unspecified"
-title = "Android companion — installable APK"
-description = "Debug-signed native Android 8+ app with pairing, consented SMS permissions, visa OTP filtering and encrypted background delivery."
+title = "Android OTP Companion APK"
+description = "For your Android phone. This is the existing debug APK; the reported Play Protect installation block remains unresolved."
 logical_id = "72f78d0c-c44e-4c02-9cef-4ebcf304a468"
 content_hash = "sha256:5ddf7f32611061755fb8f02eec9c8a1b5fa43547a00100aa7733b547b9593482"
 size = 24808
 mtime_ms = 1794342518493
-storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c95153f8-4120-4f5d-9b29-b3fd42034cff/72f78d0c-c44e-4c02-9cef-4ebcf304a468/64eaf92e-187b-4372-9940-460a44aa297b"
-storage_version_token = "1794342999936204"
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c95153f8-4120-4f5d-9b29-b3fd42034cff/72f78d0c-c44e-4c02-9cef-4ebcf304a468/aa45316a-b961-4d5e-bd85-ed0cfe05a479"
+storage_version_token = "1794376986238407"
 content_type = "application/octet-stream"
 
 [[outputs]]
