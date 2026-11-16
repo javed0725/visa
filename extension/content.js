@@ -207,14 +207,16 @@ function createFloatingPanel() {
         <div id="panel-header">
           <div class="bp-brand">
             <span class="bp-mark" aria-hidden="true">
-              <svg viewBox="0 0 32 32" width="28" height="28" role="img">
-                <path d="M4 8 2 3l8 3 6-2 6 2 8-3-2 6 2 6-4 10-10 4-10-4-4-10 2-7Z" fill="#0a1119" stroke="#55e6e1" stroke-width="1.5" stroke-linejoin="round"/>
-                <path d="m8 12 5 2 3-2 3 2 5-2-2 7-6 4-6-4-2-7Z" fill="#141326" stroke="#b49aff" stroke-width="1.2" stroke-linejoin="round"/>
-                <path d="m11 16 3 1m7-1-3 1m-2 1v2" fill="none" stroke="#55e6e1" stroke-width="1.5" stroke-linecap="round"/>
+              <svg viewBox="0 0 128 128" width="28" height="28" role="img" focusable="false">
+                <path d="M20 18 45 29 64 22 83 29 108 18 103 45 115 67 102 99 64 116 26 99 13 67 25 45Z" fill="#080d15" stroke="#55e6e1" stroke-width="5" stroke-linejoin="round"/>
+                <path d="m27 45 20 10 17-7 17 7 20-10-7 32-30 24-30-24Z" fill="#151326" stroke="#b49aff" stroke-width="3.5" stroke-linejoin="round"/>
+                <path d="m32 56 20 6 12-6 12 6 20-6-9 13-17 5-6-5-6 5-17-5Z" fill="#55e6e1"/>
+                <path d="m58 74 6 4 6-4-3 12-3 3-3-3Z" fill="#b49aff"/>
+                <path d="m44 89 12 5 8-7 8 7 12-5-8 15-12 6-12-6Z" fill="#0a1119" stroke="#55e6e1" stroke-width="2.5" stroke-linejoin="round"/>
               </svg>
             </span>
             <span class="bp-title">BLACK PANTHER — SLOT AUTOMATION</span>
-            <span class="bp-version">v2.3</span>
+            <span class="bp-version">v2.3.1</span>
           </div>
           <div class="bp-header-actions">
             <span id="panel-run-state" class="bp-run-state" data-state="idle">IDLE</span>
@@ -254,6 +256,7 @@ function createFloatingPanel() {
             <div class="bp-otp-row">
               <input type="text" id="otp-input-field" aria-label="OTP" placeholder="ENTER OTP" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
               <button id="send-otp-btn">FETCH OTP</button>
+              <button id="fill-otp-btn" title="Fetch the latest relay OTP and fill the page without submitting it">FILL OTP</button>
             </div>
             <div class="bp-run-controls">
               <button id="start-btn">▶ START</button>
@@ -604,6 +607,9 @@ function createFloatingPanel() {
     document.getElementById('send-otp-btn').addEventListener('click', () => {
       pollOTPFromBackground();
     });
+    document.getElementById('fill-otp-btn').addEventListener('click', () => {
+      pollOTPFromBackground(false, { force: true, fillOnly: true });
+    });
     document.getElementById('otp-input-field').addEventListener('input', () => {
       const session = getOTPSession();
       session.revision++;
@@ -941,7 +947,8 @@ function getOTPSession() {
   if (!otpSession) otpSession = {
     attempted: new Set(), submitted: false, manualPageInput: false,
     revision: 0, fetchPending: false, nextFetchAt: 0, fetchFailures: 0,
-    awaitingManualSubmit: false, relayCode: null, relayMessageId: null
+    awaitingManualSubmit: false, relayCode: null, relayMessageId: null,
+    fetchPendingRequest: null, manualFillPending: false
   };
   return otpSession;
 }
@@ -957,16 +964,18 @@ function validOTP(code, field) {
     field.minLength > 0 && field.minLength <= 10 ? field.minLength : 6;
   return new RegExp(`^\\d{${length}}$`).test(code);
 }
-function pollOTPFromBackground(automatic = false) {
+function pollOTPFromBackground(automatic = false, { force = false, fillOnly = false } = {}) {
   const generation = storageGeneration;
   const session = getOTPSession();
   const rejected = activeStep?.kind === 'otp' && !!first(PAGE.otpError, activeStep.root);
   if (resetInProgress || (automatic && !automationSettings.autoOtpFill) ||
-    session.awaitingManualSubmit || session.fetchPending || session.manualPageInput ||
-    (session.submitted && !rejected) || (automatic && Date.now() < session.nextFetchAt)) return;
+    (session.awaitingManualSubmit && !fillOnly) || (session.fetchPending && !force) ||
+    session.manualPageInput || (session.submitted && !rejected) ||
+    (automatic && Date.now() < session.nextFetchAt)) return;
   const revision = session.revision;
   const requestVersion = ++otpRequestVersion;
   session.fetchPending = true;
+  session.fetchPendingRequest = requestVersion;
   // 120 requests/minute stays below the relay's 180/minute browser limit.
   session.nextFetchAt = Date.now() + 500;
   const failed = () => {
@@ -977,11 +986,15 @@ function pollOTPFromBackground(automatic = false) {
   try {
     if (!chrome.runtime?.id) {
       session.fetchPending = false;
+      session.fetchPendingRequest = null;
       failed();
       return;
     }
     chrome.runtime.sendMessage({ type: automatic ? 'WAIT_OTP' : 'FETCH_OTP' }, (response) => {
-      session.fetchPending = false;
+      if (session.fetchPendingRequest === requestVersion) {
+        session.fetchPending = false;
+        session.fetchPendingRequest = null;
+      }
       if (generation !== storageGeneration || requestVersion !== otpRequestVersion ||
         session !== otpSession || session.revision !== revision || session.manualPageInput ||
         resetInProgress || (automatic && !isRunning) || (session.submitted && !rejected)) return;
@@ -993,11 +1006,44 @@ function pollOTPFromBackground(automatic = false) {
         session.nextFetchAt = Date.now() + 500;
       if (automatic && isRunning) scheduleWorkflow(500);
       const data = response.data;
+      if (fillOnly && !(data && data.success && data.otp)) {
+        updateStage('OTP check', '30%', 'No new OTP is available from the relay yet. Try FILL OTP again shortly.');
+        logMessage('Manual relay check found no new OTP.');
+        return;
+      }
       if (data && data.success && data.otp) {
         const code = otpCode(data.otp);
-        if (!/^\d{4,10}$/.test(code) || session.attempted.has(code)) return;
+        if (!/^\d{4,10}$/.test(code) || session.attempted.has(code)) {
+          if (fillOnly) {
+            updateStage('OTP check', '30%', 'The relay code is invalid or was already used. Waiting for a new code.');
+            logMessage('Manual relay fill ignored an invalid or previously submitted code.');
+          }
+          return;
+        }
         const field = first(PAGE.otp);
         if (field && !validOTP(code, field)) return;
+        if (fillOnly) {
+          const panelField = document.getElementById('otp-input-field');
+          if (!field) {
+            updateStage('OTP check', '30%', 'The official OTP field is not visible yet. Try FILL OTP again when it appears.');
+            logMessage('Manual relay fill is waiting for the official OTP field.');
+            return;
+          }
+          if (field && field.value?.trim() && field.value !== code && !session.manualFillPending) {
+            updateStage('OTP ready', '30%', 'A code is already present on the official page; it was left unchanged.');
+            logMessage('Manual Fill OTP left the existing page code untouched.');
+            return;
+          }
+          if (panelField) panelField.value = code;
+          setValue(field, code);
+          session.relayMessageId = data.messageId || null;
+          session.relayCode = code;
+          session.manualFillPending = true;
+          session.awaitingManualSubmit = true;
+          updateStage('OTP ready', '30%', 'Latest relay OTP filled on the official page. Verify it there; this button does not submit.');
+          logMessage('Manual relay fill completed; OTP verification remains manual.');
+          return;
+        }
         const otpFieldBox = document.getElementById('otp-input-field');
         if (otpFieldBox) otpFieldBox.value = code;
         session.relayMessageId = data.messageId || null;
@@ -1007,7 +1053,10 @@ function pollOTPFromBackground(automatic = false) {
       }
     });
   } catch (err) {
-    session.fetchPending = false;
+    if (session.fetchPendingRequest === requestVersion) {
+      session.fetchPending = false;
+      session.fetchPendingRequest = null;
+    }
     failed();
   }
 }
@@ -1057,6 +1106,10 @@ function performOTP(step) {
     updateStage('OTP verification', '30%', 'OTP submitted once. Waiting for verification; no automatic resubmission.');
     return;
   }
+  if (session.manualFillPending) {
+    updateStage('OTP ready', '30%', 'Latest relay OTP is filled. Verify it on the official page to continue.');
+    return;
+  }
   const code = otpCode(document.getElementById('otp-input-field')?.value);
   if (validOTP(code, step.el) && !session.attempted.has(code)) {
     setValue(step.el, code);
@@ -1088,6 +1141,7 @@ function observeManualOTP(event) {
   if (session.autoSubmitting) return;
   if (event.type === 'input') {
     session.manualPageInput = true;
+    session.manualFillPending = false;
     session.revision++;
     scheduleWorkflow(0);
     return;
@@ -1100,6 +1154,7 @@ function observeManualOTP(event) {
   const code = otpCode(field.value);
   if (code) session.attempted.add(code);
   session.awaitingManualSubmit = false;
+  session.manualFillPending = false;
   acknowledgeRelayOTP(session, code);
   session.manualPageInput = true;
   session.submitted = true;

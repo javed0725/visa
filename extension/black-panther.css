@@ -353,6 +353,17 @@
   border-color: rgba(85, 230, 225, .24) !important;
 }
 
+#visa-automator-floating-panel #fill-otp-btn {
+  min-height: 30px;
+  padding: 4px 7px;
+  color: var(--bp-violet) !important;
+  background: rgba(180, 154, 255, .08) !important;
+  border: 1px solid rgba(180, 154, 255, .28) !important;
+  border-radius: 6px !important;
+  font-size: 10px !important;
+  font-weight: 700;
+}
+
 #visa-automator-floating-panel #start-btn,
 #visa-automator-floating-panel #pause-btn,
 #visa-automator-floating-panel #stop-btn {
@@ -938,7 +949,7 @@
 
 #visa-automator-floating-panel .bp-otp-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 7px;
   margin: 0 0 8px;
   padding: 7px;
@@ -1224,4 +1235,70 @@
 
 #visa-automator-floating-panel #panel-header .bp-version {
   display: none;
+}
+
+/* Keep the brand and all controls on one row at every panel width. */
+#visa-automator-floating-panel #panel-header {
+  display: flex !important;
+  flex-flow: row nowrap !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  width: 100% !important;
+  min-width: 0;
+}
+
+#visa-automator-floating-panel #panel-header > .bp-brand {
+  display: flex !important;
+  flex: 1 1 auto !important;
+  align-items: center !important;
+  gap: 7px !important;
+  min-width: 0 !important;
+  overflow: hidden;
+}
+
+#visa-automator-floating-panel #panel-header .bp-brand > .bp-mark {
+  display: grid !important;
+  flex: 0 0 30px !important;
+  width: 30px !important;
+  height: 30px !important;
+  place-items: center;
+  overflow: visible;
+  background: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+#visa-automator-floating-panel #panel-header .bp-brand > .bp-mark svg {
+  display: block;
+  width: 28px;
+  height: 28px;
+}
+
+#visa-automator-floating-panel #panel-header .bp-title {
+  flex: 0 1 112px !important;
+  min-width: 0;
+  max-width: 112px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+#visa-automator-floating-panel #panel-header .bp-title::after {
+  content: "BLACK PANTHER";
+  color: var(--bp-text);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+
+#visa-automator-floating-panel #panel-header > .bp-header-actions {
+  display: flex !important;
+  flex: 0 0 auto !important;
+  flex-flow: row nowrap !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 3px !important;
+  margin-left: auto;
+  white-space: nowrap;
 }

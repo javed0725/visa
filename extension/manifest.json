@@ -1,12 +1,17 @@
 {
   "manifest_version": 3,
   "name": "BLACK PANTHER — SLOT AUTOMATION",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "description": "Adaptive appointment workflow panel with event-driven OTP delivery and paced retries.",
   "minimum_chrome_version": "109",
   "permissions": ["storage"],
   "optional_host_permissions": ["https://*/*"],
   "options_page": "options.html",
+  "icons": {
+    "16": "icons/panther-16.png",
+    "48": "icons/panther-48.png",
+    "128": "icons/panther-128.png"
+  },
   "host_permissions": [
     "https://appointment.ivacbd.com/*"
   ],
@@ -14,7 +19,12 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "Open BLACK PANTHER — SLOT AUTOMATION"
+    "default_title": "Open BLACK PANTHER — SLOT AUTOMATION",
+    "default_icon": {
+      "16": "icons/panther-16.png",
+      "48": "icons/panther-48.png",
+      "128": "icons/panther-128.png"
+    }
   },
   "content_scripts": [
     {

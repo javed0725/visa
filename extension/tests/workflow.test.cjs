@@ -430,6 +430,29 @@ test('automatic paired-phone fetching fills and verifies only once through backg
   assert.equal(e.run('isRunning'), true);
 });
 
+test('manual Fill OTP interrupts a pending wait and fills without submitting', () => {
+  const e = otpEngine();
+  e.run(`isRunning = true; performOTP(activeStep); pollOTPFromBackground(false,{force:true,fillOnly:true});`);
+  assert.equal(e.run('messages.length'), 2);
+  assert.equal(e.run('messages[0].message.type'), 'WAIT_OTP');
+  assert.equal(e.run('messages[1].message.type'), 'FETCH_OTP');
+  e.run(`messages[0].callback({ok:true,data:{success:true,otp:'111111'}});`);
+  assert.equal(e.run('otpField.value'), '');
+  e.run(`messages[1].callback({ok:true,data:{success:true,otp:'027922',messageId:'relay-message'}}); performOTP(activeStep);`);
+  assert.equal(e.run('otpField.value'), '027922');
+  assert.equal(e.run('otpPanel.value'), '027922');
+  assert.equal(e.run('clicks.length'), 0);
+  assert.equal(e.run('getOTPSession().manualFillPending'), true);
+  assert.equal(e.run('getOTPSession().relayMessageId'), 'relay-message');
+});
+
+test('manual Fill OTP does not overwrite an OTP already typed on the official page', () => {
+  const e = otpEngine();
+  e.run(`otpField.value='654321'; getOTPSession().manualPageInput=true; pollOTPFromBackground(false,{force:true,fillOnly:true});`);
+  assert.equal(e.run('messages.length'), 0);
+  assert.equal(e.run('otpField.value'), '654321');
+});
+
 test('waiting for SMS uses paced polling with no overlapping fetch requests', () => {
   const e = otpEngine();
   e.run(`isRunning = true; performOTP(activeStep); performOTP(activeStep);`);

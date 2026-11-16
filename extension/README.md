@@ -17,7 +17,7 @@
 This download is a complete Manifest V3 Chrome extension. Installation and the
 base/manual-OTP workflow do not require Node.js or a running backend. Optional
 Phone OTP auto-fill requires the supplied HTTPS relay and Android companion.
-No missing icon, popup or side-panel files are referenced.
+The toolbar and panel share the neon-cyan panther-mask mark in `icons/`.
 
 Click the extension's Chrome toolbar icon to reopen a closed floating panel.
 From another website, the icon opens the appointment site in a new tab. If the
@@ -31,6 +31,10 @@ RUN shows the live 10-step roadmap, current activity, four document slots
 saves scan timing, rate-limit backoff, date range/order, live page mission/center
 options, and automation toggles in extension storage. LOG and DEBUG contain
 session events and non-sensitive diagnostics.
+
+**Fetch OTP** checks the relay. **Fill OTP** forces a fresh relay check and fills
+the visible official OTP field without submitting it; it will not overwrite a
+code already typed on the page. Verify the code on the official page.
 
 **Fix CF** only scrolls to the site's security challenge; solve it on the official
 page. **Force Resume** rechecks the current step without bypassing upload,
@@ -52,6 +56,9 @@ background.js
 phone-relay.js
 content.js
 black-panther.css
+icons/panther-16.png
+icons/panther-48.png
+icons/panther-128.png
 options.html
 options.js
 README.md

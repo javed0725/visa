@@ -12,6 +12,24 @@ test('Black Panther manifest loads its scoped panel theme', () => {
   assert.equal(manifest.name, 'BLACK PANTHER — SLOT AUTOMATION');
   assert.ok(manifest.content_scripts[0].css.includes('black-panther.css'));
   assert.ok(fs.existsSync(path.join(extensionDir, 'black-panther.css')));
+  for (const size of ['16', '48', '128']) {
+    const iconPath = manifest.action.default_icon[size];
+    assert.ok(iconPath, `missing toolbar icon size ${size}`);
+    assert.ok(fs.existsSync(path.join(extensionDir, iconPath)), `missing ${iconPath}`);
+    assert.equal(manifest.icons[size], iconPath);
+  }
+});
+
+test('header stays in a flex row and the manual FILL OTP action is present', () => {
+  assert.match(source, /class="bp-brand"/);
+  assert.match(source, /class="bp-header-actions"/);
+  assert.match(source, /id="reset-panel"/);
+  assert.match(source, /id="minimize-panel"/);
+  assert.match(source, /id="close-panel"/);
+  assert.match(source, /id="fill-otp-btn"[^>]*>FILL OTP/);
+  const styles = fs.readFileSync(path.join(extensionDir, 'black-panther.css'), 'utf8');
+  assert.match(styles, /#panel-header\s*\{\s*display:\s*flex\s*!important;\s*flex-flow:\s*row nowrap\s*!important;/);
+  assert.match(styles, /\.bp-otp-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto\s+auto/s);
 });
 
 test('panel contains the roadmap, all four sections, metrics, and four document slots', () => {
