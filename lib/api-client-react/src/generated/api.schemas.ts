@@ -52,3 +52,7 @@ export interface HealthStatus {
   status: string;
 }
 
+export type WaitForPhoneOTPParams = {
+after?: string;
+};
+

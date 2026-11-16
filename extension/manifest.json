@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Visa Automator Pro",
-  "version": "2.1.0",
-  "description": "Adaptive appointment workflow with an on-page control panel, completion checks and paced retries.",
+  "version": "2.2.0",
+  "description": "Adaptive appointment workflow with event-driven phone OTP delivery and paced retries.",
   "minimum_chrome_version": "109",
   "permissions": ["storage"],
   "optional_host_permissions": ["https://*/*"],

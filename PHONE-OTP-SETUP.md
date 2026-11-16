@@ -2,14 +2,16 @@
 
 ## Downloads
 
-- **visa-automator-pro-chrome.zip**: complete Chrome extension, version 2.1.
+- **visa-automator-pro-chrome.zip**: complete Chrome extension, version 2.2.0.
   Extract and load the directory containing `manifest.json` at
   `chrome://extensions` → Developer mode → Load unpacked.
-- **visa-otp-companion-debug.apk**: native Android companion, Android 8 or newer.
+- **visa-otp-companion-debug.apk**: native Android companion, version 1.0.2,
+  Android 8 or newer.
   This is a debug-signed private-testing build, not a Play Store release.
-  Android may ask permission to install from the download source.
-- **visa-phone-otp-source.zip**: Android source, relay source/schema, extension,
-  build files and this guide. No application credentials are embedded.
+  Play Protect's existing sensitive-SMS-permission block is not bypassed or fixed
+  by this update.
+- **visa-phone-otp-source-2.2.0.zip**: Android source, relay source/schema,
+  extension, build files and this guide. No application credentials are embedded.
 
 ## Connect once
 
@@ -23,12 +25,11 @@
 3. Open the Android app. Enter the same relay address and the Client Key. Tap
    **Pair phone** within ten minutes. Read the SMS disclosure and use
    **Grant SMS access**. Pair only a phone you own/control.
-4. Keep the IVAC OTP tab active and press **Start**. A matching incoming SMS is
-   filtered on the phone, its six-digit code is relayed, and the extension fills
-   the OTP field, dispatches input/change events, and clicks Verify once.
-   While waiting on the active OTP page, the extension polls every 500ms after
-   each response (with one request in flight). Phone/network delays can still
-   affect delivery; failures use a slower retry backoff rather than request spam.
+4. Keep the IVAC OTP tab active and press **Start**. When a matching SMS arrives,
+   Android immediately attempts the HTTPS POST while the SMS receiver is active.
+   The relay wakes the extension's authenticated wait request, which fills the
+   OTP field, dispatches input/change events, and clicks Verify once. A short
+   timeout reconnects after interruptions; manual **Fetch OTP** remains available.
 
 Manual typing/pasting and manual website Verify remain supported. Automatic
 receipt does not override a user who has started entering the OTP manually.
@@ -73,6 +74,8 @@ PATCH  /api/phone-otp/pairing    Enable/disable (browser credential)
 DELETE /api/phone-otp/pairing    Revoke both credentials (either credential)
 POST   /api/phone-otp/messages   Send OTP (phone credential)
 GET    /api/phone-otp/messages   Fetch current OTP (browser credential)
+GET    /api/phone-otp/messages/wait?after=<message-id>
+                                  Wait for a new OTP (browser credential)
 ```
 
 `Authorization: Bearer …` is used for authenticated endpoints. Never put
@@ -98,9 +101,11 @@ pnpm --filter @workspace/api-server run start
 ```
 
 Use HTTPS termination at the hosting proxy. The clients reject plaintext HTTP
-and redirects. PostgreSQL preserves pairings across restarts and scales;
-request-rate counters are process-local, so add a shared edge rate limit for
-large multi-instance/public deployments. No production URL is hardcoded.
+and redirects. PostgreSQL preserves pairings across restarts; `LISTEN/NOTIFY`
+wakes browser waiters across API replicas. The 20-second wait timeout recovers if
+a notification is missed. Request-rate counters are process-local, so add a
+shared edge rate limit for large multi-instance/public deployments. No
+production URL is hardcoded.
 
 ## Android build and troubleshooting
 
@@ -137,16 +142,18 @@ If nothing arrives:
 4. Keep both devices online and the IVAC OTP tab active. Keep phone time accurate.
 5. Expired/revoked keys require a new key and pairing; old SMS codes are not reused.
 
-Android uses JobScheduler work items for delivery and exponential network retries
+Android attempts delivery immediately, then keeps the encrypted code in its
+JobScheduler queue if the network or relay is unavailable. JobScheduler retries
 until the code expires; no continuously running foreground service is needed.
-OS/battery restrictions can still delay delivery. This is near-real-time polling,
-not a guarantee of instantaneous delivery in every power/network state.
+Carrier delivery, Android scheduling, network transit, Chrome suspension and
+relay availability can still add delay. Zero elapsed time cannot be guaranteed
+across those systems.
 
 ## Verification
 
-- Extension workflow and relay-worker unit tests.
+- Extension workflow, relay long-poll and relay-worker unit tests.
 - Real HTTP/PostgreSQL relay tests for pairing, isolation, delivery, duplicate and
-  expiry rejection, pause/resume and revocation.
+  expiry rejection, immediate long-poll wake-up, pause/resume and revocation.
 - Encryption/key-generation tests and native SMS parser tests.
 - Native Android debug build and APK signature verification.
 - Browser fixture checks used the real options/content scripts and real relay

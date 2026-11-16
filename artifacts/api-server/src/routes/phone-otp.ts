@@ -14,6 +14,73 @@ class RelayError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 const windows = new Map<string, { until: number; count: number }>();
+const waiters = new Map<string, Set<() => void>>();
+const MESSAGE_WAIT_MS = 20_000;
+const MAX_WAITERS_PER_PAIRING = 2;
+let listenerReady = false;
+let listenerSetup: Promise<void> | null = null;
+function notifyMessage(pairingId: string) {
+  const listeners = waiters.get(pairingId);
+  if (!listeners) return;
+  waiters.delete(pairingId);
+  for (const listener of listeners) listener();
+}
+async function broadcastMessage(pairingId: string) {
+  notifyMessage(pairingId);
+  try { await pool.query("SELECT pg_notify('visa_phone_otp', $1)", [pairingId]); }
+  catch { /* Local clients are awake; timed waiters will reconnect if needed. */ }
+}
+async function ensureMessageListener() {
+  if (listenerReady) return;
+  if (!listenerSetup) {
+    listenerSetup = (async () => {
+      const client = await pool.connect();
+      try {
+        client.on("notification", notification => {
+          if (notification.channel === "visa_phone_otp" && notification.payload)
+            notifyMessage(notification.payload);
+        });
+        client.on("error", error => {
+          listenerReady = false;
+          client.release(error);
+        });
+        await client.query("LISTEN visa_phone_otp");
+        listenerReady = true;
+      } catch (error) {
+        client.release(error as Error);
+        throw error;
+      }
+    })();
+  }
+  try { await listenerSetup; }
+  finally { listenerSetup = null; }
+}
+function waitForMessage(pairingId: string, req: Request, res: Response) {
+  let finish!: () => void;
+  const promise = new Promise<void>(resolve => {
+    let done = false;
+    const complete = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      waiters.get(pairingId)?.delete(complete);
+      if (waiters.get(pairingId)?.size === 0) waiters.delete(pairingId);
+      req.off("aborted", complete);
+      res.off("close", onClose);
+      resolve();
+    };
+    const onClose = () => { if (!res.writableEnded) complete(); };
+    finish = complete;
+    const listeners = waiters.get(pairingId) ?? new Set<() => void>();
+    listeners.add(complete);
+    waiters.set(pairingId, listeners);
+    const timer = setTimeout(complete, MESSAGE_WAIT_MS);
+    timer.unref();
+    req.once("aborted", complete);
+    res.once("close", onClose);
+  });
+  return { promise, cancel: () => finish() };
+}
 function limit(key: string, max: number, duration = 60_000) {
   const now = Date.now();
   const existing = windows.get(key);
@@ -86,11 +153,13 @@ router.patch("/pairing", route(async (req, res) => {
   const parsed = UpdatePhonePairingBody.strict().safeParse(req.body);
   if (!parsed.success) throw new RelayError(400, "enabled must be a boolean.");
   await pool.query("UPDATE phone_otp_pairings SET enabled=$1,otp_cipher=NULL WHERE id=$2", [parsed.data.enabled, row.id]);
+  if (!parsed.data.enabled) await broadcastMessage(row.id);
   res.json({ enabled: parsed.data.enabled });
 }));
 router.delete("/pairing", route(async (req, res) => {
   const row = await authorized(req, "either");
   await pool.query("DELETE FROM phone_otp_pairings WHERE id=$1", [row.id]);
+  await broadcastMessage(row.id);
   res.status(204).end();
 }));
 router.post("/messages", route(async (req, res) => {
@@ -104,13 +173,57 @@ router.post("/messages", route(async (req, res) => {
   if (!Number.isSafeInteger(receivedAt) || receivedAt < now - OTP_TTL || receivedAt > now + 30_000)
     throw new RelayError(400, "SMS is expired or the phone clock is incorrect.");
   // Row lock in UPDATE serializes duplicate delivery and out-of-order retries.
-  await pool.query(
+  const delivered = await pool.query<{ id: string }>(
     `UPDATE phone_otp_pairings SET otp_cipher=$1,message_id=$2,received_at=$3,
       seen_ids=(SELECT COALESCE(jsonb_agg(value),'[]'::jsonb) FROM
         (SELECT value FROM jsonb_array_elements(jsonb_build_array($2::text)||seen_ids) WITH ORDINALITY AS ids(value,n) WHERE n<=20) recent)
-     WHERE id=$4 AND enabled=true AND expires_at>$5 AND NOT seen_ids ? $2 AND (received_at IS NULL OR received_at<=$3)`,
+     WHERE id=$4 AND enabled=true AND expires_at>$5 AND NOT seen_ids ? $2 AND (received_at IS NULL OR received_at<=$3)
+     RETURNING id`,
     [encryptOTP(otp, row.id), messageId, receivedAt, row.id, now]);
+  if (delivered.rows[0]) await broadcastMessage(row.id);
   res.status(202).json({ accepted: true });
+}));
+router.get("/messages/wait", route(async (req, res) => {
+  const authorizedRow = await authorized(req);
+  const after = req.query.after;
+  if (after !== undefined && (typeof after !== "string" || !/^[0-9a-f-]{36}$/i.test(after)))
+    throw new RelayError(400, "Invalid message cursor.");
+  const deliverable = (row: Pairing | undefined) => {
+    const receivedAt = Number(row?.received_at);
+    if (!row?.enabled || !row.otp_cipher || receivedAt < Date.now() - OTP_TTL ||
+        (after && row.message_id === after)) return null;
+    return {
+      success: true, otp: decryptOTP(row.otp_cipher, row.id),
+      messageId: row.message_id, receivedAt
+    };
+  };
+  const readLatest = async () => {
+    const { rows } = await pool.query<Pairing>(
+      "SELECT * FROM phone_otp_pairings WHERE id=$1 AND expires_at>$2",
+      [authorizedRow.id, Date.now()]);
+    return deliverable(rows[0]);
+  };
+  // LISTEN/NOTIFY wakes requests even when phone and browser HTTP requests land
+  // on different API replicas. The 20s request timeout remains the reconnect path.
+  try { await ensureMessageListener(); } catch { /* Local notification plus timeout are the fallback. */ }
+  let message = await readLatest();
+  if (message || !authorizedRow.enabled) { res.json(message || { success: false }); return; }
+
+  // Register before the second read so an OTP arriving between the first read
+  // and listener registration cannot be lost.
+  if ((waiters.get(authorizedRow.id)?.size || 0) >= MAX_WAITERS_PER_PAIRING)
+    throw new RelayError(429, "A live OTP connection is already active.");
+  const waiter = waitForMessage(authorizedRow.id, req, res);
+  try {
+    message = await readLatest();
+    if (!message) await waiter.promise;
+  } finally {
+    waiter.cancel();
+  }
+  if (res.destroyed) return;
+  // Recheck auth/expiry after waking; the browser may have been unpaired while waiting.
+  await authorized(req);
+  res.json(await readLatest() || { success: false });
 }));
 router.get("/messages", route(async (req, res) => {
   const row = await authorized(req);

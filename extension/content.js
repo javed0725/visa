@@ -101,7 +101,7 @@ function createFloatingPanel() {
           <div style="display: flex; align-items: center; gap: 8px;">
             <span style="background: #ffcc00; width: 8px; height: 8px; border-radius: 50%;"></span>
             <span style="font-weight: bold; font-size: 13px; letter-spacing: 0.5px;">Visa Automator</span>
-            <span style="font-size: 9px; background: #ffcc0022; color: #ffcc00; padding: 2px 6px; border-radius: 4px;">PRO 2.1</span>
+            <span style="font-size: 9px; background: #ffcc0022; color: #ffcc00; padding: 2px 6px; border-radius: 4px;">PRO 2.2</span>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
             <button id="reset-panel" title="Stop automation and erase all saved extension data" style="background: #34202a; border: 1px solid #774052; color: #ffb4be; padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 9px;">RESET</button>
@@ -785,7 +785,7 @@ function pollOTPFromBackground(automatic = false) {
   session.nextFetchAt = Date.now() + 500;
   const failed = () => {
     session.fetchFailures++;
-    session.nextFetchAt = Date.now() + Math.min(20000, 5000 * 2 ** Math.min(session.fetchFailures, 2));
+    session.nextFetchAt = Date.now() + Math.min(10000, 1000 * 2 ** Math.min(session.fetchFailures, 3));
     if (!automatic) logMessage('OTP service unavailable. Waiting; manual OTP entry is still available.');
   };
   try {
@@ -794,7 +794,7 @@ function pollOTPFromBackground(automatic = false) {
       failed();
       return;
     }
-    chrome.runtime.sendMessage({ type: 'FETCH_OTP' }, (response) => {
+    chrome.runtime.sendMessage({ type: automatic ? 'WAIT_OTP' : 'FETCH_OTP' }, (response) => {
       session.fetchPending = false;
       if (generation !== storageGeneration || requestVersion !== otpRequestVersion ||
         session !== otpSession || session.revision !== revision || session.manualPageInput ||
@@ -804,7 +804,7 @@ function pollOTPFromBackground(automatic = false) {
         return;
       }
       session.fetchFailures = 0;
-      session.nextFetchAt = Date.now() + 500;
+        session.nextFetchAt = Date.now() + 500;
       if (automatic && isRunning) scheduleWorkflow(500);
       const data = response.data;
       if (data && data.success && data.otp) {

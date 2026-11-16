@@ -29,7 +29,7 @@ chrome.action.onClicked.addListener(async tab => {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const phoneActions = ['PHONE_STATE', 'PHONE_ENABLE', 'PHONE_REGENERATE', 'PHONE_CONFIGURE', 'PHONE_SETUP', 'PHONE_ACK_OTP'];
-  if (!['FETCH_OTP', 'RESET_AUTOMATOR', ...phoneActions].includes(message?.type)) return false;
+  if (!['FETCH_OTP', 'WAIT_OTP', 'RESET_AUTOMATOR', ...phoneActions].includes(message?.type)) return false;
   const fromOptions = sender.url === chrome.runtime.getURL('options.html') && !sender.tab?.url?.startsWith(APPOINTMENT_URL);
   if (!sender.tab?.url?.startsWith(APPOINTMENT_URL) && !fromOptions) {
     sendResponse({ ok: false, error: 'OTP requests are only allowed from the appointment page.' });
@@ -83,13 +83,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ ok: false, error: 'Keep the IVAC OTP tab active to receive a code.' });
     return false;
   }
-  // Share an in-flight read rather than turning simultaneous panel/automatic
-  // reads into errors that trigger the content script's long error backoff.
-  if (!otpRequest) {
-    otpRequest = PhoneRelay.fetchOTP()
-      .then(data => ({ ok: true, data }), error => ({ ok: false, error: error.message }))
-      .finally(() => { otpRequest = null; });
+  if (message.type === 'WAIT_OTP') {
+    // A short authenticated wait is woken by Android's push, avoiding a
+    // fixed polling interval. The timeout reconnects after idle/network gaps.
+    if (!otpRequest) {
+      otpRequest = PhoneRelay.waitOTP()
+        .then(data => ({ ok: true, data }), error => ({ ok: false, error: error.message }))
+        .finally(() => { otpRequest = null; });
+    }
+    otpRequest.then(sendResponse);
+  } else {
+    PhoneRelay.fetchOTP()
+      .then(data => sendResponse({ ok: true, data }))
+      .catch(error => sendResponse({ ok: false, error: error.message }));
   }
-  otpRequest.then(sendResponse);
   return true;
 });

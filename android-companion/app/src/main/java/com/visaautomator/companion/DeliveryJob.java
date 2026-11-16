@@ -14,6 +14,40 @@ import org.json.JSONObject;
 public final class DeliveryJob extends JobService {
     private static final int JOB_ID=4106;
     private final java.util.concurrent.atomic.AtomicInteger generation=new java.util.concurrent.atomic.AtomicInteger();
+    static void deliverImmediately(Context context) {
+        try {
+            JSONObject state=SecureStore.read(context);
+            JSONArray queue=state.optJSONArray("queue");
+            if (queue==null || queue.length()==0) return;
+            // Broadcast queues preserve order; push the newest code first so a
+            // delayed older delivery can never overwrite it at the relay.
+            JSONObject message=queue.getJSONObject(queue.length()-1);
+            String id=message.getString("messageId");
+            if (state.optString("deviceToken").isEmpty() ||
+                state.optLong("expiresAt")<=System.currentTimeMillis()) {
+                SecureStore.clear(context,"Pairing expired. Generate a new key and pair again.");
+                return;
+            }
+            if (message.getLong("receivedAt")<System.currentTimeMillis()-120000) {
+                SecureStore.drop(context,id,"An undelivered code expired. Waiting for the next visa OTP.");
+                return;
+            }
+            JSONObject payload=new JSONObject(message.toString()).put("clientKey",state.getString("clientKey"));
+            RelayApi.Result result=RelayApi.request(state.getString("relayURL"),"/messages","POST",
+                state.getString("deviceToken"),payload,3500);
+            if (result.code==202)
+                SecureStore.drop(context,id,"Visa OTP pushed securely to the browser.");
+            else if (result.code==409)
+                SecureStore.drop(context,id,"Extension auto-fill is off. Enable it before the next OTP.");
+            else if (result.code==401)
+                SecureStore.clear(context,"Phone unpaired or expired. Generate a new key and pair again.");
+            else
+                SecureStore.status(context,"Relay unavailable. The encrypted message is queued for automatic retry.");
+        } catch (Exception ignored) {
+            try { SecureStore.status(context,"Immediate relay unavailable. The encrypted message is queued for automatic retry."); }
+            catch (Exception ignoredStatus) {}
+        }
+    }
     static void schedule(Context context) {
         try {
             JSONArray queue=SecureStore.read(context).optJSONArray("queue");

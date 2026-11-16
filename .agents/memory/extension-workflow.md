@@ -52,6 +52,18 @@ per-message approval tradeoff was explained.
 per-message consent. Treat installation policy and approval as a separate
 constraint; do not promise that rebuilding or signing alone removes Google's block.
 
+Phone OTP delivery uses an immediate Android HTTPS POST plus a short,
+authenticated relay long-poll with PostgreSQL notifications, not a permanent
+WebSocket or fixed-delay polling loop.
+
+**Why:** Chrome Manifest V3 workers can be suspended, and phone, relay, or browser
+network paths can disconnect; a bounded wait can wake immediately while retaining
+a reliable reconnect path and the existing encrypted Android retry queue.
+
+**How to apply:** Keep the 20-second wait timeout/reconnect, OTP expiry and
+single-submit safeguards. Do not claim zero latency; carrier/OS/network delivery
+is outside the extension's control.
+
 OTP is an exception to the general action retry policy: submit a received code
 once, then remain active while waiting for verification. Manual website OTP entry
 and verification must be respected and followed by automatic workflow resumption.

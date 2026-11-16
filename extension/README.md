@@ -57,8 +57,9 @@ LAN/Termux endpoint and its permission have been removed.
 4. Install the companion APK on an Android 8+ phone you own. Enter the same relay
    address and Client Key, tap **Pair phone**, then grant SMS access after reading
    the disclosure. The key must be paired within ten minutes and is single-use.
-5. Keep the IVAC OTP tab active in Chrome and run the automator. Incoming matching
-   SMS codes reach the relay and are fetched through the background worker.
+5. Keep the IVAC OTP tab active in Chrome and run the automator. Android pushes a
+   matching SMS code to the relay immediately; the relay wakes Chrome's authenticated
+   wait request so the code arrives without waiting for a polling interval.
 
 **Copy** copies the key; **New key** revokes the previous phone and pending OTP.
 The auto-fill switch pauses relay delivery and erases any queued relay code.
@@ -67,9 +68,11 @@ extension storage. If the relay cannot be reached, unpair on the phone too.
 No public relay URL is included in the ZIP; the project must be published or
 the relay hosted before another device can reach it.
 
-While running on the OTP screen, the extension automatically checks for an OTP
-at two-second intervals, with slower retries on connection errors and no
-overlapping fetch requests. Once a valid code is obtained it fills the website's
+While running on the OTP screen, the extension holds one authenticated relay
+request open for up to 20 seconds. Android's OTP POST wakes it immediately; after
+a timeout or connection loss, Chrome reconnects. The worker shares one open wait
+request and a manual Fetch OTP action remains an immediate read. Once a valid
+code arrives it fills the website's
 OTP field, clicks Verify/Submit **once**, then only watches for verification.
 It does not click Verify again after a timeout, spinner, rerender or Stop/Start.
 Codes are not written to extension storage or logs.
@@ -82,11 +85,16 @@ code, but never automatically retries the same code.
 
 ## Changes
 
-### Live workflow fixes (2.1.0)
+### Live workflow fixes (2.2.0)
 
-- OTP reads run every 500ms while actively waiting, with no overlapping network
-  requests. Concurrent authorized worker reads share one result. Network/phone
-  scheduling still adds latency; this is not a guarantee of instant SMS delivery.
+- Android attempts its HTTPS POST as soon as the matching SMS is parsed. The
+  relay wakes an authenticated Chrome long-poll immediately; PostgreSQL
+  notifications reach waiters on other API instances too. A 20-second timeout
+  reconnects after suspension or connection loss. The worker limits one active
+  wait per pairing and leaves manual Fetch OTP as an immediate read.
+- Once received, the extension fills the field and clicks Verify once. The
+  existing duplicate guard, manual override, CAPTCHA wait, and transition check
+  remain in place. Carrier, OS, network, and browser suspension can still add time.
 - Recognizes **Next Step**, **Confirm All Information is Correct**,
   **Save & Continue**, and **Confirm Mission & IVAC Center**.
 - Preserves required confirmation dialogs instead of dismissing their Close button.

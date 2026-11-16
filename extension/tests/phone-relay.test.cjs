@@ -12,7 +12,8 @@ function relay() {
       calls.push({url,options});
       const data=url.endsWith('/pairings')?{
         clientKey:'ABCD-EFGH',browserToken:'test-only-browser-token',pairExpiresAt:Date.now()+600000,expiresAt:Date.now()+86400000
-      }:url.endsWith('/messages')?deliveries:options.method==='GET'?{paired:true,enabled:!!store.phoneOTP?.enabled}:{};
+      }:url.includes('/messages/wait')?{success:true,otp:'654321',messageId:'22222222-2222-4222-8222-222222222222'}:
+        url.includes('/messages')?deliveries:options.method==='GET'?{paired:true,enabled:!!store.phoneOTP?.enabled}:{};
       return {status:options.method==='DELETE'?204:200,ok:true,async json(){return data;}};
     }
   });
@@ -49,6 +50,15 @@ test('only submitted message receipts are suppressed on subsequent fetches',asyn
   assert.equal((await r.run('PhoneRelay.fetchOTP()')).success,false);
   r.setDelivery({success:true,otp:'654321',messageId:'22222222-2222-4222-8222-222222222222'});
   assert.equal((await r.run('PhoneRelay.fetchOTP()')).success,true);
+});
+test('long-poll wait uses the last acknowledged message as cursor',async()=>{
+  const r=relay();await r.run(`PhoneRelay.configure('https://relay.test');`);
+  await r.run('PhoneRelay.enable(true)');
+  await r.run(`PhoneRelay.ack('11111111-1111-4111-8111-111111111111')`);
+  const result=await r.run('PhoneRelay.waitOTP()');
+  assert.equal(result.otp,'654321');
+  assert.match(r.calls.at(-1).url,/messages\/wait\?after=11111111-1111-4111-8111-111111111111/);
+  assert.equal(r.calls.at(-1).options.signal.aborted,false);
 });
 test('a late OTP receipt after RESET cannot recreate storage',async()=>{
   const r=relay();

@@ -20,11 +20,15 @@ final class RelayApi {
         Result(int code, JSONObject body) { this.code=code; this.body=body; }
     }
     static Result request(String base, String path, String method, String token, JSONObject body) throws Exception {
+        return request(base,path,method,token,body,8000);
+    }
+    static Result request(String base, String path, String method, String token, JSONObject body, int timeoutMs) throws Exception {
         HttpsURLConnection connection = (HttpsURLConnection)new URL(origin(base)+"/api/phone-otp"+path).openConnection();
         try {
             connection.setRequestMethod(method);
-            connection.setConnectTimeout(8000);
-            connection.setReadTimeout(8000);
+            connection.setUseCaches(false);
+            connection.setConnectTimeout(timeoutMs);
+            connection.setReadTimeout(timeoutMs);
             connection.setInstanceFollowRedirects(false);
             connection.setRequestProperty("Content-Type","application/json");
             connection.setRequestProperty("Cache-Control","no-store");

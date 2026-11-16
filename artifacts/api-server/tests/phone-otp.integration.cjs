@@ -21,6 +21,7 @@ async function create() {
 test('secure phone relay: pairing, isolation, delivery, pause, expiry and revocation', async t => {
   const browser=await create();
   let phone;
+  let latestMessageId;
   const payload={clientKey:browser.clientKey,otp:'123456',messageId:randomUUID(),receivedAt:Date.now()};
   try {
     await t.test('client key binds one phone and is never a read credential', async () => {
@@ -42,6 +43,21 @@ test('secure phone relay: pairing, isolation, delivery, pause, expiry and revoca
       assert.equal((await request('/messages','POST',phone.deviceToken,{...payload,otp:'654321',messageId:randomUUID(),receivedAt:payload.receivedAt-10000})).status,202);
       assert.equal((await request('/messages','GET',browser.browserToken)).data.otp,payload.otp);
     });
+    await t.test('long-poll wakes immediately when the phone pushes a new OTP', async () => {
+      const after=payload.messageId;
+      const waiting=request(`/messages/wait?after=${after}`,'GET',browser.browserToken);
+      await new Promise(resolve=>setTimeout(resolve,80));
+      const pushed={...payload,otp:'027922',messageId:randomUUID(),receivedAt:Date.now()+1};
+      assert.equal((await request('/messages','POST',phone.deviceToken,pushed)).status,202);
+      const result=await waiting;
+      assert.equal(result.status,200);
+      assert.equal(result.data.otp,'027922');
+      assert.equal(result.data.messageId,pushed.messageId);
+      latestMessageId=pushed.messageId;
+    });
+    await t.test('wait cursor rejects malformed message identifiers', async () => {
+      assert.equal((await request('/messages/wait?after=bad','GET',browser.browserToken)).status,400);
+    });
     await t.test('expired, invalid, ambiguous metadata and full SMS bodies are rejected', async () => {
       for (const change of [{otp:'12345'},{receivedAt:Date.now()-121000},{receivedAt:Date.now()+60000},
         {messageId:'invalid'},{smsBody:'not permitted'}]) {
@@ -56,7 +72,10 @@ test('secure phone relay: pairing, isolation, delivery, pause, expiry and revoca
       assert.equal((await request('/messages','GET',second.browserToken)).data.success,false);
     });
     await t.test('turning off erases queued code and rejects SMS until enabled again', async () => {
+      const waiting=request(`/messages/wait?after=${latestMessageId}`,'GET',browser.browserToken);
+      await new Promise(resolve=>setTimeout(resolve,50));
       assert.equal((await request('/pairing','PATCH',browser.browserToken,{enabled:false})).status,200);
+      assert.equal((await waiting).data.success,false);
       assert.equal((await request('/messages','POST',phone.deviceToken,{...payload,messageId:randomUUID()})).status,409);
       assert.equal((await request('/messages','GET',browser.browserToken)).data.success,false);
       assert.equal((await request('/pairing','GET',phone.deviceToken)).data.enabled,false);

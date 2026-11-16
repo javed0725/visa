@@ -67,6 +67,22 @@ paths:
       responses:
         "204":
           description: Both credentials revoked and queued OTP erased
+  /phone-otp/messages/wait:
+    get:
+      operationId: waitForPhoneOTP
+      security: [{ relayBearer: [] }]
+      parameters:
+        - in: query
+          name: after
+          required: false
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: New OTP pushed from the paired phone, or no code before timeout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhoneDelivery"
   /phone-otp/messages:
     post:
       operationId: sendPhoneOTP

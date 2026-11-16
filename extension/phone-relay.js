@@ -20,12 +20,12 @@ const PhoneRelay = (() => {
         url.pathname !== '/' || url.search || url.hash) throw Error('Enter an HTTPS relay origin, without a path, query or password.');
     return url.origin;
   }
-  async function request(config, path, method = 'GET', body, authenticated = true) {
+  async function request(config, path, method = 'GET', body, authenticated = true, timeoutMs = 10000) {
     if (!config.relayURL) throw Error('Open Relay setup first.');
     if (!await chrome.permissions.contains({ origins: [`${config.relayURL}/*`] }))
       throw Error('Relay permission is missing. Open Relay setup and save again.');
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(`${config.relayURL}/api/phone-otp${path}`, {
         method, headers: {
@@ -102,6 +102,24 @@ const PhoneRelay = (() => {
       if (version !== epoch) return { success: false };
       if (data.messageId && config.consumedIds?.includes(data.messageId)) return { success: false };
       return data;
+    },
+    async waitOTP() {
+      const version = epoch;
+      const config = await load();
+      if (!config.enabled) return { success: false };
+      if (!config.browserToken) throw Error('Pair your phone using Relay setup.');
+      let after = config.consumedIds?.[0] || '';
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const cursor = after ? `?after=${encodeURIComponent(after)}` : '';
+        const data = await request(config, `/messages/wait${cursor}`, 'GET', undefined, true, 25000);
+        if (version !== epoch) return { success: false };
+        if (data.messageId && config.consumedIds?.includes(data.messageId)) {
+          after = data.messageId;
+          continue;
+        }
+        return data;
+      }
+      return { success: false };
     },
     async ack(messageId) {
       if (!/^[0-9a-f-]{36}$/i.test(messageId || '')) throw Error('Invalid message receipt.');

@@ -84,3 +84,45 @@ mtime_ms = 1794381096157
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c95153f8-4120-4f5d-9b29-b3fd42034cff/b7b183ab-965b-4495-97db-e53bd63ee66d/9ea1a4d9-9843-403a-9f9a-e9d8dd53652b"
 storage_version_token = "1794381126841166"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "WCJGok99cLcwX7ekSxY1a"
+uri = "file://generated-artifacts/visa-automator-pro-chrome-2.2.0.zip"
+type = "unspecified"
+title = "Visa Automator Pro Chrome 2.2.0"
+description = "Complete Chrome extension. Extract and load the folder containing manifest.json. Requires the updated relay API to be published for push-based OTP notifications."
+logical_id = "cbb7d136-fb3b-4a02-93bc-bbb39d62ef6e"
+content_hash = "sha256:f88cba9f1e775c55d74f83608b3a43da1d9f4e432e705ffe0789e3f2b8513f29"
+size = 36633
+mtime_ms = 1794842181734
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c95153f8-4120-4f5d-9b29-b3fd42034cff/cbb7d136-fb3b-4a02-93bc-bbb39d62ef6e/de32519f-f88d-4571-96c6-4db5e2b1c5c3"
+storage_version_token = "1794842218120496"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "aOaoKj-kgFJdaYj3XPu52"
+uri = "file://generated-artifacts/visa-otp-companion-1.0.2-debug.apk"
+type = "unspecified"
+title = "Visa OTP Companion Android 1.0.2"
+description = "Attempts HTTPS OTP forwarding immediately when the matching SMS arrives, retaining encrypted JobScheduler retry if the network is unavailable. Existing Play Protect SMS-permission installation block remains."
+logical_id = "f55a8483-8403-443e-9f35-ff5eeb4e604c"
+content_hash = "sha256:41061b9940ffa728b28ba12acc3b6b24b45af6d0590f2d92d32106a200056557"
+size = 25688
+mtime_ms = 1794842181751
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c95153f8-4120-4f5d-9b29-b3fd42034cff/f55a8483-8403-443e-9f35-ff5eeb4e604c/2991578d-b045-457f-8a6a-6bf8f4c4b881"
+storage_version_token = "1794842219407574"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "QPSWvQXipAx4aTMOca_o6"
+uri = "file://generated-artifacts/visa-phone-otp-source-2.2.0.zip"
+type = "unspecified"
+title = "Updated phone OTP system source"
+description = "Includes the extension, Android companion, API relay, OpenAPI updates, tests and setup guide."
+logical_id = "7e403efa-cbb6-4f27-a4b8-b78fe0eeae66"
+content_hash = "sha256:07ff68e7261a2324a4d0e8bab9067d4d990f077281bf216e5613ab05c6c6a608"
+size = 231364
+mtime_ms = 1794842181790
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c95153f8-4120-4f5d-9b29-b3fd42034cff/7e403efa-cbb6-4f27-a4b8-b78fe0eeae66/55ec860c-7a6a-4032-816f-39d124be4fd5"
+storage_version_token = "1794842220756670"
+content_type = "application/octet-stream"

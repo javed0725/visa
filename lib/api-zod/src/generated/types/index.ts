@@ -14,3 +14,4 @@ export * from './phonePairing';
 export * from './phonePairInput';
 export * from './phonePreference';
 export * from './phoneStatus';
+export * from './waitForPhoneOTPParams';

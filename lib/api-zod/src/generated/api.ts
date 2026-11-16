@@ -50,6 +50,18 @@ export const UpdatePhonePairingResponse = zod.unknown()
 export const RevokePhonePairingResponse = zod.void()
 
 
+export const WaitForPhoneOTPQueryParams = zod.object({
+  "after": zod.coerce.string().uuid().optional()
+})
+
+export const WaitForPhoneOTPResponse = zod.object({
+  "success": zod.boolean(),
+  "otp": zod.string().optional(),
+  "messageId": zod.string().optional(),
+  "receivedAt": zod.number().optional()
+})
+
+
 export const sendPhoneOTPBodyOtpRegExp = new RegExp('^[0-9]{6}$');
 
 

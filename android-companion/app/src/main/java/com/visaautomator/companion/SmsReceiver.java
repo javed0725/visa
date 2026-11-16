@@ -30,6 +30,9 @@ public final class SmsReceiver extends BroadcastReceiver {
                     if (code==null || at<System.currentTimeMillis()-120000 || at>System.currentTimeMillis()+30000) continue;
                     SecureStore.enqueue(context,new JSONObject().put("otp",code).put("messageId",UUID.randomUUID().toString()).put("receivedAt",at));
                 }
+                // Try the authenticated HTTPS push immediately while the SMS
+                // broadcast is active. JobScheduler remains the offline retry.
+                DeliveryJob.deliverImmediately(context);
                 DeliveryJob.schedule(context);
             } catch (Exception error) {
                 // No SMS, code, sender, credentials or exception payload in logs.

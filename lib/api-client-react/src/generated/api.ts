@@ -27,7 +27,8 @@ import type {
   PhonePairInput,
   PhonePairing,
   PhonePreference,
-  PhoneStatus
+  PhoneStatus,
+  WaitForPhoneOTPParams
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -433,6 +434,84 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getRevokePhonePairingMutationOptions(options));
     }
+
+export const getWaitForPhoneOTPUrl = (params?: WaitForPhoneOTPParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/phone-otp/messages/wait?${stringifiedParams}` : `/api/phone-otp/messages/wait`
+}
+
+export const waitForPhoneOTP = async (params?: WaitForPhoneOTPParams, options?: Parameters<typeof customFetch>[1]): Promise<PhoneDelivery> => {
+
+  return customFetch<PhoneDelivery>(getWaitForPhoneOTPUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getWaitForPhoneOTPQueryKey = (params?: WaitForPhoneOTPParams,) => {
+    return [
+    `/api/phone-otp/messages/wait`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getWaitForPhoneOTPQueryOptions = <TData = Awaited<ReturnType<typeof waitForPhoneOTP>>, TError = ErrorType<unknown>>(params?: WaitForPhoneOTPParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof waitForPhoneOTP>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getWaitForPhoneOTPQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof waitForPhoneOTP>>> = ({ signal }) => waitForPhoneOTP(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof waitForPhoneOTP>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type WaitForPhoneOTPQueryResult = NonNullable<Awaited<ReturnType<typeof waitForPhoneOTP>>>
+export type WaitForPhoneOTPQueryError = ErrorType<unknown>
+
+
+
+export function useWaitForPhoneOTP<TData = Awaited<ReturnType<typeof waitForPhoneOTP>>, TError = ErrorType<unknown>>(
+ params?: WaitForPhoneOTPParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof waitForPhoneOTP>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getWaitForPhoneOTPQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getSendPhoneOTPUrl = () => {
 
