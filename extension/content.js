@@ -1,13 +1,32 @@
-// Visa Automator Pro — adaptive, completion-driven content script.
+// BLACK PANTHER — SLOT AUTOMATION: adaptive, completion-driven content script.
 // Used by the complete Manifest V3 extension and as a drop-in content-script update.
 let automatorInterval = null;
 let isRunning = false;
+let isPaused = false;
 const FILE_SLOTS = [1, 2, 3, 4];
+const FILE_SLOT_LABELS = { 1: 'PRIMARY PDF', 2: 'CO1', 3: 'CO2', 4: 'CO3' };
 let uploadedFilesMap = { 1: null, 2: null, 3: null, 4: null };
 let primarySlotKey = null;
+const AUTOMATION_DEFAULTS = Object.freeze({
+  autoSignIn: true,
+  autoOtpFill: true,
+  autoSubmitOtp: true,
+  autoUploadPdf: true,
+  autoClosePopups: true,
+  autoSlotRotation: true,
+  autoNavigate: true,
+  autoMissionCenter: true,
+  scanGapMs: 500,
+  rate429BackoffMs: 25000,
+  monthRange: 2,
+  slotRotation: 'middle',
+  preferredDate: ''
+});
+let automationSettings = { ...AUTOMATION_DEFAULTS };
 let storageGeneration = 0;
 let resetInProgress = false;
 let currentStageDetail = '';
+let currentStageName = 'Idle';
 let panelCreating = false;
 let otpSession = null;
 let otpRequestVersion = 0;
@@ -26,7 +45,20 @@ const TRACKER_STEPS = [
   { kind: 'details', key: null, title: 'Confirm applicant details' },
   { kind: 'mission', key: 'missionSelected', id: 'step-mission', title: 'Mission / center' },
   { kind: 'booking', key: 'slotBooked', id: 'step-booking', title: 'Book slot' },
-  { kind: 'next', key: null, id: 'step-next', title: 'Continue popup' }
+  { kind: 'next', key: null, id: 'step-next', title: 'Continue popup' },
+  { kind: 'details', key: 'detailsConfirmed', id: 'step-details', title: 'Confirm details' }
+];
+const ROADMAP = [
+  { id: 'login', label: 'LOGIN', kinds: ['login', 'signIn'], done: ['signIn'] },
+  { id: 'otp', label: 'OTP', kinds: ['otp'], done: ['otpVerified'] },
+  { id: 'landing', label: 'LANDING', kinds: ['appointment'], done: ['takeAppointmentClicked'] },
+  { id: 'notice', label: 'NOTICE', kinds: ['next'], done: ['noticeConfirmed'] },
+  { id: 'upload', label: 'UPLOAD', kinds: ['upload'], done: ['filesUploaded'] },
+  { id: 'co', label: 'CO', kinds: ['details'], done: ['detailsConfirmed'] },
+  { id: 'mission', label: 'MISSION', kinds: ['mission'], done: ['missionSelected'] },
+  { id: 'center', label: 'CENTER', kinds: ['mission'], done: ['centerSelected'] },
+  { id: 'date', label: 'DATE', kinds: ['booking'], done: ['slotBooked', 'dateContinued'] },
+  { id: 'pay', label: 'PAY', kinds: [], done: ['paymentReached'] }
 ];
 
 // Step Completion Tracking State
@@ -37,9 +69,93 @@ let stepStatus = {
   takeAppointmentClicked: false,
   filesUploaded: false,
   missionSelected: false,
+  centerSelected: false,
+  noticeConfirmed: false,
+  detailsConfirmed: false,
+  dateContinued: false,
   slotBooked: false,
   paymentReached: false
 };
+
+function normalizeAutomationSettings(raw = {}) {
+  const values = { ...AUTOMATION_DEFAULTS, ...(raw && typeof raw === 'object' ? raw : {}) };
+  for (const key of [
+    'autoSignIn', 'autoOtpFill', 'autoSubmitOtp', 'autoUploadPdf', 'autoClosePopups',
+    'autoSlotRotation', 'autoNavigate', 'autoMissionCenter'
+  ]) values[key] = values[key] !== false;
+  values.scanGapMs = Math.max(100, Math.min(30000, Number(values.scanGapMs) || AUTOMATION_DEFAULTS.scanGapMs));
+  values.rate429BackoffMs = Math.max(1000, Math.min(120000, Number(values.rate429BackoffMs) || AUTOMATION_DEFAULTS.rate429BackoffMs));
+  values.monthRange = Math.max(1, Math.min(12, Math.round(Number(values.monthRange) || AUTOMATION_DEFAULTS.monthRange)));
+  values.slotRotation = ['forward', 'backward'].includes(values.slotRotation) ? values.slotRotation : 'middle';
+  values.preferredDate = /^\d{4}-\d{2}-\d{2}$/.test(String(values.preferredDate || '')) ? String(values.preferredDate) : '';
+  return values;
+}
+
+function syncAutomationControls() {
+  document.querySelectorAll('#visa-automator-floating-panel [data-setting]').forEach(control => {
+    const value = automationSettings[control.dataset.setting];
+    if (control.type === 'checkbox') control.checked = !!value;
+    else control.value = value ?? '';
+  });
+  updateStepTrackerUI();
+  updateDebugPanel();
+}
+
+function setAutomationSetting(key, value) {
+  if (!(key in AUTOMATION_DEFAULTS)) return false;
+  automationSettings = normalizeAutomationSettings({ ...automationSettings, [key]: value });
+  chrome.storage.local.set({ automationSettings });
+  syncAutomationControls();
+  return true;
+}
+
+function initAutomationControls(saved = {}) {
+  automationSettings = normalizeAutomationSettings(saved);
+  syncAutomationControls();
+  document.querySelectorAll('#visa-automator-floating-panel [data-setting]').forEach(control => {
+    const save = () => setAutomationSetting(control.dataset.setting,
+      control.type === 'checkbox' ? control.checked : control.value);
+    control.addEventListener('change', save);
+  });
+}
+
+function populateConfigSelect(select, selector, placeholder, savedValue) {
+  if (!select) return;
+  const previous = savedValue || select.value;
+  const found = Array.from(document.querySelectorAll(selector)).filter(el => visible(el) && el.options)
+    .flatMap(el => Array.from(el.options))
+    .filter(usableOption)
+    .map(option => ({ value: option.value, label: option.textContent.trim() }));
+  if (selector === PAGE.center) {
+    const custom = customCenter();
+    const listId = custom?.getAttribute('aria-controls');
+    const list = listId ? document.getElementById(listId) : first('[role="listbox"]');
+    if (list && !inPanel(list)) {
+      found.push(...all('[role="option"]', list).filter(enabled).map(option => ({
+        value: option.getAttribute('data-value') || label(option),
+        label: label(option)
+      })));
+    }
+  }
+  const unique = [...new Map(found.filter(option => option.label && option.value !== '')
+    .map(option => [`${option.value}\u0000${option.label}`, option])).values()];
+  select.replaceChildren(new Option(placeholder, ''));
+  unique.forEach(option => select.add(new Option(option.label, option.value)));
+  if (previous && unique.some(option => option.value === previous || option.label === previous)) {
+    select.value = unique.find(option => option.value === previous || option.label === previous).value;
+  } else {
+    select.value = '';
+  }
+}
+
+function refreshConfigDropdowns(savedMission, savedCenter) {
+  if (typeof PAGE === 'undefined') return;
+  populateConfigSelect(document.getElementById('config-mission'), PAGE.mission,
+    'Use current page selection', savedMission);
+  populateConfigSelect(document.getElementById('config-center'), PAGE.center,
+    'Choose from current page options', savedCenter);
+  updateDebugPanel();
+}
 
 // Helper: Convert File to Base64
 function fileToBase64(file) {
@@ -70,13 +186,14 @@ function createFloatingPanel() {
   panelCreating = true;
   const generation = storageGeneration;
 
-  chrome.storage.local.get(['panelPos', 'savedPhone', 'savedPass', 'primarySlot', 'savedMission', 'savedCenter', 'savedFilesMap', 'automatorRunning', 'calendarRetry'], async (result) => {
+  chrome.storage.local.get(['panelPos', 'savedPhone', 'savedPass', 'primarySlot', 'savedMission', 'savedCenter', 'savedFilesMap', 'automatorRunning', 'calendarRetry', 'automationSettings'], async (result) => {
     panelCreating = false;
     if (generation !== storageGeneration || resetInProgress) return;
     const posX = result.panelPos?.x || '30px';
     const posY = result.panelPos?.y || '30px';
     const isRight = result.panelPos?.right !== undefined ? result.panelPos.right : '30px';
     if (result.primarySlot) primarySlotKey = result.primarySlot;
+    automationSettings = normalizeAutomationSettings(result.automationSettings);
     calendarResume = result.calendarRetry || null;
 
     if (result.savedFilesMap) {
@@ -86,213 +203,159 @@ function createFloatingPanel() {
     }
 
     const panelHTML = `
-      <div id="visa-automator-floating-panel" style="position: fixed; top: ${posY}; right: ${isRight}; left: ${posX}; width: 320px; max-width: calc(100vw - 16px); background: #0c0d12; color: #fff; z-index: 999999; border-radius: 11px; box-shadow: 0 10px 28px rgba(0,0,0,0.8); font-family: sans-serif; border: 1px solid #1f2030;">
-        <style>
-          @keyframes va-step-spin { to { transform: rotate(360deg); } }
-          #visa-automator-floating-panel input { min-width: 0; }
-          #visa-automator-floating-panel * { box-sizing: border-box; }
-          #workflow-indicator { flex: 0 0 auto; width: 11px; height: 11px; color: #00ff88; }
-          #workflow-indicator.va-working { border: 2px solid #00b35944; border-top-color: #00ff88; border-radius: 50%; animation: va-step-spin .8s linear infinite; }
-          @media (prefers-reduced-motion: reduce) { #workflow-indicator.va-working { animation: none; } }
-        </style>
-        
-        <!-- Top Header / Branding -->
-        <div id="panel-header" style="background: #13141d; padding: 10px 14px; cursor: move; display: flex; justify-content: space-between; align-items: center; border-top-left-radius: 14px; border-top-right-radius: 14px; border-bottom: 1px solid #1f2030;">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="background: #ffcc00; width: 8px; height: 8px; border-radius: 50%;"></span>
-            <span style="font-weight: bold; font-size: 13px; letter-spacing: 0.5px;">Visa Automator</span>
-            <span style="font-size: 9px; background: #ffcc0022; color: #ffcc00; padding: 2px 6px; border-radius: 4px;">PRO 2.2</span>
+      <div id="visa-automator-floating-panel" class="bp-shell" style="position:fixed;top:${posY};right:${isRight};left:${posX};">
+        <div id="panel-header">
+          <div class="bp-brand">
+            <span class="bp-mark" aria-hidden="true">
+              <svg viewBox="0 0 32 32" width="28" height="28" role="img">
+                <path d="M4 8 2 3l8 3 6-2 6 2 8-3-2 6 2 6-4 10-10 4-10-4-4-10 2-7Z" fill="#0a1119" stroke="#55e6e1" stroke-width="1.5" stroke-linejoin="round"/>
+                <path d="m8 12 5 2 3-2 3 2 5-2-2 7-6 4-6-4-2-7Z" fill="#141326" stroke="#b49aff" stroke-width="1.2" stroke-linejoin="round"/>
+                <path d="m11 16 3 1m7-1-3 1m-2 1v2" fill="none" stroke="#55e6e1" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </span>
+            <span class="bp-title">BLACK PANTHER — SLOT AUTOMATION</span>
+            <span class="bp-version">v2.3</span>
           </div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <button id="reset-panel" title="Stop automation and erase all saved extension data" style="background: #34202a; border: 1px solid #774052; color: #ffb4be; padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 9px;">RESET</button>
-            <button id="minimize-panel" style="background: none; border: none; color: #777; cursor: pointer; font-size: 12px;">_</button>
-            <button id="close-panel" style="background: none; border: none; color: #777; cursor: pointer; font-size: 13px;">✕</button>
+          <div class="bp-header-actions">
+            <span id="panel-run-state" class="bp-run-state" data-state="idle">IDLE</span>
+            <button id="reset-panel" title="Stop automation and erase all saved extension data">RESET</button>
+            <button id="minimize-panel" aria-label="Minimize panel">−</button>
+            <button id="close-panel" aria-label="Close panel">×</button>
           </div>
         </div>
+        <div id="panel-content">
+          <nav class="bp-tabs" aria-label="Extension sections">
+            <button id="tab-run-btn" class="bp-tab" aria-selected="true">RUN</button>
+            <button id="tab-config-btn" class="bp-tab" aria-selected="false">CONFIG</button>
+            <button id="tab-log-btn" class="bp-tab" aria-selected="false">LOG</button>
+            <button id="tab-debug-btn" class="bp-tab" aria-selected="false">DEBUG</button>
+          </nav>
 
-        <div id="panel-content" style="padding: 14px; max-height: 590px; overflow-y: auto;">
-          
-          <!-- Profile & Language Header -->
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #888;">
-              <span>PROFILE</span>
-              <span style="background: #00b35933; color: #00ff88; padding: 3px 10px; border-radius: 12px; font-weight: bold; border: 1px solid #00b35955;">Person 1</span>
-            </div>
-            <div style="display: flex; gap: 4px;">
-              <button style="background: #00b359; border: none; color: #fff; font-size: 10px; padding: 2px 6px; border-radius: 4px; cursor: pointer;">EN</button>
-              <button style="background: #1a1b26; border: none; color: #aaa; font-size: 10px; padding: 2px 6px; border-radius: 4px; cursor: pointer;">বাংলা</button>
-              <span style="background: #00ff8822; color: #00ff88; font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid #00ff8844;">● trial</span>
-            </div>
-          </div>
-
-          <!-- Stage Progress Card -->
-          <div id="legacy-stage-card" style="display: none; background: #13141d; padding: 10px; border-radius: 8px; margin-bottom: 12px; border: 1px solid #1f2030;">
-            <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 6px;">
-              <span style="color: #888;">STAGE: <b id="current-stage-txt" style="color: #fff;">Waiting for page</b></span>
-              <span style="background: #1a1b26; color: #aaa; padding: 2px 6px; border-radius: 4px; font-size: 10px;">IDLE</span>
-            </div>
-            <div style="background: #1a1b26; height: 4px; border-radius: 2px; margin-bottom: 6px; overflow: hidden;">
-              <div id="progress-bar" style="background: #00ff88; width: 10%; height: 100%; transition: width 0.3s;"></div>
-            </div>
-            <div id="stage-desc" style="font-size: 10px; color: #666;">Waiting for the page...</div>
-          </div>
-
-          <!-- Navigation Tabs -->
-          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 14px;">
-            <button id="tab-run-btn" style="background: #00b359; border: none; color: #fff; padding: 6px; border-radius: 6px; font-size: 11px; font-weight: bold; cursor: pointer;">▶ RUN & MANUAL</button>
-            <button id="tab-config-btn" style="background: #161722; border: none; color: #aaa; padding: 6px; border-radius: 6px; font-size: 11px; cursor: pointer;">⚙ CONFIG</button>
-            <button id="tab-license-btn" style="background: #161722; border: none; color: #aaa; padding: 6px; border-radius: 6px; font-size: 11px; cursor: pointer;">📄 LICENSE</button>
-          </div>
-
-          <!-- RUN TAB -->
           <div id="view-run" class="tab-view">
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
-              <div>
-                <label style="font-size: 9px; color: #777;">PHONE</label>
-                <input type="text" id="phone-field" placeholder="Phone" style="width: 100%; background: #161722; border: 1px solid #28293d; color: #fff; padding: 6px; border-radius: 6px; font-size: 11px; box-sizing: border-box;" />
-              </div>
-              <div>
-                <label style="font-size: 9px; color: #777;">PASSWORD</label>
-                <input type="password" id="pass-field" placeholder="Password" style="width: 100%; background: #161722; border: 1px solid #28293d; color: #fff; padding: 6px; border-radius: 6px; font-size: 11px; box-sizing: border-box;" />
-              </div>
-            </div>
-
-            <!-- OTP Input Section -->
-            <section style="background:#13141d;padding:8px;border:1px solid #28293d;border-radius:8px;margin-bottom:8px;font-size:11px;">
-              <label style="display:flex;align-items:center;gap:7px;font-weight:bold;cursor:pointer;">
-                <input id="phone-otp-toggle" type="checkbox" style="accent-color:#00b96c;"> Phone OTP auto-fill
-              </label>
-              <div style="display:flex;gap:5px;align-items:center;margin-top:7px;">
-                <input id="phone-client-key" aria-label="Client Key" readonly placeholder="CLIENT KEY" style="width:100%;font:700 13px monospace;letter-spacing:1px;color:#7ce7b3;background:#161722;border:1px solid #34384d;padding:6px;border-radius:5px;">
-                <button id="phone-copy-key" title="Copy Client Key" style="padding:6px;background:#25283a;color:#eee;border:0;border-radius:5px;cursor:pointer;">Copy</button>
-                <button id="phone-new-key" title="Regenerate key and unpair the old phone" style="padding:6px;background:#25283a;color:#eee;border:0;border-radius:5px;cursor:pointer;">New key</button>
-              </div>
-              <div style="display:flex;gap:6px;align-items:center;margin-top:6px;">
-                <span id="phone-pair-status" role="status" style="color:#a6abbd;flex:1;font-size:10px;">Not paired</span>
-                <button id="phone-relay-setup" style="border:0;background:transparent;color:#7ce7b3;cursor:pointer;font-size:10px;">Relay setup</button>
+            <section class="bp-section">
+              <div class="bp-section-heading"><span>LIVE ROADMAP</span><span>LOGIN → PAY</span></div>
+              <div data-bp="roadmap" aria-label="10-step workflow roadmap">
+                ${ROADMAP.map((step, index) => `<div data-roadmap-id="${step.id}" data-bp-step="upcoming" data-step="${index + 1}" title="${step.label}">${step.label}</div>`).join('')}
               </div>
             </section>
-            <div style="background: #13141d; padding: 8px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #1f2030; display: flex; align-items: center; gap: 8px;">
-              <input type="text" id="otp-input-field" placeholder="Enter OTP" maxlength="6" style="flex: 1; background: #161722; border: 1px solid #28293d; color: #00ff88; text-align: center; padding: 6px; border-radius: 6px; font-size: 14px; letter-spacing: 2px; font-weight: bold;" />
-              <button id="send-otp-btn" style="background: #222333; border: none; color: #ccc; padding: 7px 10px; border-radius: 6px; font-size: 10px; cursor: pointer;">FETCH OTP</button>
+            <div class="bp-credentials">
+              <label>PHONE<input type="text" id="phone-field" placeholder="Phone number" autocomplete="username"></label>
+              <label>PASSWORD<input type="password" id="pass-field" placeholder="Password" autocomplete="current-password"></label>
             </div>
-
-            <!-- Controls -->
-            <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 6px; margin-bottom: 12px;">
-              <button id="start-btn" style="background: #ffcc00; border: none; color: #000; font-weight: bold; padding: 10px; border-radius: 8px; cursor: pointer; font-size: 12px;">▶ START</button>
-              <button id="pause-btn" style="background: #1f2030; border: none; color: #ffcc00; padding: 10px; border-radius: 8px; cursor: pointer; font-size: 11px;">⏸ PAUSE</button>
-              <button id="stop-btn" style="background: #331111; border: none; color: #ff5555; padding: 10px; border-radius: 8px; cursor: pointer; font-size: 11px;">⏹ STOP</button>
+            <section class="bp-section bp-phone-card">
+              <label class="bp-check"><input id="phone-otp-toggle" type="checkbox"> Link phone relay</label>
+              <div class="bp-client-key-row">
+                <input id="phone-client-key" aria-label="Client Key" readonly placeholder="CLIENT KEY">
+                <button id="phone-copy-key" title="Copy Client Key">COPY</button>
+                <button id="phone-new-key" title="Regenerate key and unpair the old phone">NEW</button>
+              </div>
+              <div class="bp-inline-note"><span id="phone-pair-status" role="status">Not paired</span><button id="phone-relay-setup">RELAY SETUP</button></div>
+            </section>
+            <div class="bp-otp-row">
+              <input type="text" id="otp-input-field" aria-label="OTP" placeholder="ENTER OTP" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+              <button id="send-otp-btn">FETCH OTP</button>
             </div>
-
-            <!-- Multi-Slot Webfiles UI with Primary Selector -->
-            <div style="background: #13141d; padding: 8px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #1f2030;">
-              <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: #888; margin-bottom: 6px;">
-                <span>WEBFILES (Click slot to upload, Star for Primary)</span>
-                <span id="webfile-status-count" style="color: #00ff88;">0 / 4</span>
-              </div>
-              
-              <div style="display: flex; gap: 6px; margin-bottom: 6px;">
-                <div style="flex: 1; display: flex; flex-direction: column; gap: 2px;">
-                  <button class="webfile-slot-btn" data-slot="1" style="background: ${uploadedFilesMap[1] ? '#00b359' : '#161722'}; border: 1px solid #28293d; color: #aaa; padding: 6px; border-radius: 6px; font-size: 11px; font-weight: bold; cursor: pointer;">1 ${primarySlotKey == 1 ? '[P]' : ''}</button>
-                  <button class="primary-toggle-btn" data-slot="1" style="background: ${primarySlotKey == 1 ? '#00b35922' : '#161722'}; color: ${primarySlotKey == 1 ? '#00ff88' : '#666'}; border: none; font-size: 8px; padding: 2px; border-radius: 3px; cursor: pointer;">${primarySlotKey == 1 ? '★ Primary' : 'Make Primary'}</button>
-                </div>
-                <div style="flex: 1; display: flex; flex-direction: column; gap: 2px;">
-                  <button class="webfile-slot-btn" data-slot="2" style="background: ${uploadedFilesMap[2] ? '#00b359' : '#161722'}; border: 1px solid #28293d; color: #aaa; padding: 6px; border-radius: 6px; font-size: 11px; font-weight: bold; cursor: pointer;">2 ${primarySlotKey == 2 ? '[P]' : ''}</button>
-                  <button class="primary-toggle-btn" data-slot="2" style="background: ${primarySlotKey == 2 ? '#00b35922' : '#161722'}; color: ${primarySlotKey == 2 ? '#00ff88' : '#666'}; border: none; font-size: 8px; padding: 2px; border-radius: 3px; cursor: pointer;">${primarySlotKey == 2 ? '★ Primary' : 'Make Primary'}</button>
-                </div>
-                <div style="flex: 1; display: flex; flex-direction: column; gap: 2px;">
-                  <button class="webfile-slot-btn" data-slot="3" style="background: ${uploadedFilesMap[3] ? '#00b359' : '#161722'}; border: 1px solid #28293d; color: #aaa; padding: 6px; border-radius: 6px; font-size: 11px; font-weight: bold; cursor: pointer;">3 ${primarySlotKey == 3 ? '[P]' : ''}</button>
-                  <button class="primary-toggle-btn" data-slot="3" style="background: ${primarySlotKey == 3 ? '#00b35922' : '#161722'}; color: ${primarySlotKey == 3 ? '#00ff88' : '#666'}; border: none; font-size: 8px; padding: 2px; border-radius: 3px; cursor: pointer;">${primarySlotKey == 3 ? '★ Primary' : 'Make Primary'}</button>
-                </div>
-                <div style="flex: 1; display: flex; flex-direction: column; gap: 2px;">
-                  <button class="webfile-slot-btn" data-slot="4" style="background: ${uploadedFilesMap[4] ? '#00b359' : '#161722'}; border: 1px solid #28293d; color: #aaa; padding: 6px; border-radius: 6px; font-size: 11px; font-weight: bold; cursor: pointer;">4 ${primarySlotKey == 4 ? '[P]' : ''}</button>
-                  <button class="primary-toggle-btn" data-slot="4" style="background: ${primarySlotKey == 4 ? '#00b35922' : '#161722'}; color: ${primarySlotKey == 4 ? '#00ff88' : '#666'}; border: none; font-size: 8px; padding: 2px; border-radius: 3px; cursor: pointer;">${primarySlotKey == 4 ? '★ Primary' : 'Make Primary'}</button>
-                </div>
-              </div>
-
-              <input type="file" id="slot-file-1" class="hidden-slot-input" data-slot="1" accept=".pdf" style="display: none;" />
-              <input type="file" id="slot-file-2" class="hidden-slot-input" data-slot="2" accept=".pdf" style="display: none;" />
-              <input type="file" id="slot-file-3" class="hidden-slot-input" data-slot="3" accept=".pdf" style="display: none;" />
-              <input type="file" id="slot-file-4" class="hidden-slot-input" data-slot="4" accept=".pdf" style="display: none;" />
-              
-              <div id="slot-names-display" style="font-size: 9px; color: #666; text-align: center; margin-top: 4px;">Primary file will be uploaded first automatically.</div>
+            <div class="bp-run-controls">
+              <button id="start-btn">▶ START</button>
+              <button id="pause-btn">Ⅱ PAUSE</button>
+              <button id="stop-btn">■ STOP</button>
             </div>
-
-            <!-- Exactly one live workflow status, with no completed/future list. -->
-            <div style="background: #13141d; padding: 10px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #1f2030;">
-              <div style="font-size: 10px; font-weight: bold; color: #00ff88; margin-bottom: 6px; display: flex; justify-content: space-between;">
-                <span>WORKFLOW PROGRESS</span>
-                <span id="manual-file-quick-status" style="color: #aaa; font-weight: normal;">Files: 0/4</span>
+            <section data-bp="quick-actions" aria-label="Quick fixes">
+              <button data-bp-action="fix-upload" id="fix-upload-btn">FIX UPLOAD</button>
+              <button data-bp-action="fix-otp" id="fix-otp-btn">FIX OTP</button>
+              <button data-bp-action="fix-cf" id="fix-cf-btn">FIX CF</button>
+              <button data-bp-action="resume" id="force-resume-btn">FORCE RESUME</button>
+            </section>
+            <section class="bp-section bp-files">
+              <div class="bp-section-heading"><span>DOCUMENTS · PDF ≤ 500 KB</span><span id="webfile-status-count">0 / 4</span></div>
+              <div class="bp-file-grid">
+                ${FILE_SLOTS.map(slot => `<div class="bp-file-slot">
+                  <button class="webfile-slot-btn" data-slot="${slot}">${FILE_SLOT_LABELS[slot]}</button>
+                  <button class="primary-toggle-btn" data-slot="${slot}" aria-label="Make ${FILE_SLOT_LABELS[slot]} primary">${primarySlotKey == slot ? '★ PRIMARY' : 'MAKE PRIMARY'}</button>
+                </div>`).join('')}
               </div>
-              
-              <div id="workflow-status" role="status" aria-live="polite" aria-atomic="true" aria-busy="false" style="display: flex; align-items: center; gap: 8px; padding: 8px; background: #161722; border-radius: 6px;">
+              ${FILE_SLOTS.map(slot => `<input type="file" id="slot-file-${slot}" class="hidden-slot-input" data-slot="${slot}" accept=".pdf,application/pdf" hidden>`).join('')}
+              <div id="slot-names-display">Primary PDF uploads first; additional applicant files follow.</div>
+            </section>
+            <section data-bp="status-card" class="bp-status-card">
+              <div class="bp-section-heading"><span id="manual-file-quick-status">WORKFLOW STATUS</span><span id="panel-stage-label">READY</span></div>
+              <div id="workflow-status" role="status" aria-live="polite" aria-atomic="true" aria-busy="false">
                 <span id="workflow-indicator" aria-hidden="true">•</span>
-                <div style="min-width: 0; flex: 1;">
-                  <b id="workflow-title" style="font-size: 12px; color: #f5f7fb;">Ready</b>
-                  <div id="workflow-detail" style="font-size: 10px; color: #9299a8; line-height: 1.4; margin-top: 3px;">Press Start to detect the current step.</div>
-                </div>
-                <button id="workflow-retry" style="font-size: 9px; padding: 5px 7px; border: 0; border-radius: 4px; background: #00b359; color: white; cursor: pointer;" hidden>Run</button>
+                <div class="bp-status-copy"><b id="workflow-title">Ready</b><div id="workflow-detail">Press Start to detect the current page step.</div></div>
+                <button id="workflow-retry" hidden>RETRY</button>
               </div>
+            </section>
+            <div data-bp="metrics" aria-label="Automation metrics">
+              <div data-bp-metric>TRIES<strong id="metric-attempts">0</strong></div>
+              <div data-bp-metric>CYCLE<strong id="metric-cycle">1</strong></div>
+              <div data-bp-metric>DATES<strong id="metric-dates">0</strong></div>
+              <div data-bp-metric>NEXT<strong id="metric-next">—</strong></div>
             </div>
-
-            <!-- Metrics Counters -->
-            <div style="display: flex; gap: 4px; margin-bottom: 10px;">
-              <div style="flex: 1; background: #13141d; padding: 6px; border-radius: 6px; text-align: center; border: 1px solid #1f2030;">
-                <div id="metric-attempts" style="font-size: 13px; font-weight: bold; color: #fff;">0</div>
-                <div style="font-size: 8px; color: #666;">ATTEMPTS</div>
-              </div>
-              <div style="flex: 1; background: #13141d; padding: 6px; border-radius: 6px; text-align: center; border: 1px solid #1f2030;">
-                <div id="metric-cycle" style="font-size: 13px; font-weight: bold; color: #fff;">1</div>
-                <div style="font-size: 8px; color: #666;">CYCLE</div>
-              </div>
-              <div style="flex: 1; background: #13141d; padding: 6px; border-radius: 6px; text-align: center; border: 1px solid #1f2030;">
-                <div id="metric-dates" style="font-size: 13px; font-weight: bold; color: #00ff88;">0</div>
-                <div style="font-size: 8px; color: #666;">DATES</div>
-              </div>
-              <div style="flex: 1; background: #13141d; padding: 6px; border-radius: 6px; text-align: center; border: 1px solid #1f2030;">
-                <div id="metric-next" style="font-size: 13px; font-weight: bold; color: #ffcc00;">-</div>
-                <div style="font-size: 8px; color: #666;">NEXT IN</div>
-              </div>
-            </div>
-
-            <!-- Logs -->
-            <div style="background: #090a0f; padding: 8px; border-radius: 6px; font-size: 9px; color: #00ff88; height: 75px; overflow-y: auto; border: 1px solid #161722;">
-              <div>> System ready with Take Appointment step integration...</div>
+            <div class="bp-telemetry">
+              <div>STAGE<strong id="metric-stage">Idle</strong></div>
+              <div>PREFERRED<strong id="metric-preferred">Any</strong></div>
+              <div>AVAILABLE<strong id="metric-available">—</strong></div>
+              <div>TRYING<strong id="metric-trying">—</strong></div>
             </div>
           </div>
 
-          <!-- CONFIG TAB VIEW -->
-          <div id="view-config" class="tab-view" style="display: none;">
-            <div style="font-size: 11px; font-weight: bold; color: #aaa; margin-bottom: 8px;">BOOKING SETTINGS</div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
-              <div>
-                <label style="font-size: 9px; color: #777;">MISSION</label>
-                <select id="config-mission" style="width: 100%; background: #161722; border: 1px solid #28293d; color: #fff; padding: 6px; border-radius: 6px; font-size: 11px;">
-                  <option>Dhaka</option>
-                  <option>Chittagong</option>
-                  <option>Rajshahi</option>
-                  <option>Sylhet</option>
-                  <option>Khulna</option>
-                </select>
+          <div id="view-config" class="tab-view" hidden>
+            <section class="bp-section">
+              <div class="bp-section-heading">MISSION &amp; CENTER</div>
+              <label>MISSION<select id="config-mission"><option value="">Use current page selection</option></select></label>
+              <label>IVAC CENTER<select id="config-center"><option value="">Choose from current page options</option></select></label>
+              <p class="bp-note">Options are read from the official page when its selectors are available. Mission changes are off by default; current page selection is preserved.</p>
+            </section>
+            <section class="bp-section">
+              <div class="bp-section-heading">DATES &amp; SCAN</div>
+              <label>PREFERRED DATE<input type="date" id="setting-preferredDate" data-setting="preferredDate"></label>
+              <div class="bp-config-grid">
+                <label>SCAN GAP (MS)<input type="number" min="100" max="30000" step="100" data-setting="scanGapMs"></label>
+                <label>429 BACKOFF (MS)<input type="number" min="1000" max="120000" step="1000" data-setting="rate429BackoffMs"></label>
+                <label>MONTH RANGE<input type="number" min="1" max="12" step="1" data-setting="monthRange"></label>
+                <label>DATE ROTATION<select data-setting="slotRotation"><option value="middle">Middle-first</option><option value="backward">Backward</option><option value="forward">Forward</option></select></label>
               </div>
-              <div>
-                <label style="font-size: 9px; color: #777;">IVAC CENTER</label>
-                <select id="config-center" style="width: 100%; background: #161722; border: 1px solid #28293d; color: #fff; padding: 6px; border-radius: 6px; font-size: 11px;">
-                  <option>IVAC, Dhaka (JFP)</option>
-                  <option>IVAC, Chittagong</option>
-                  <option>IVAC, Rajshahi</option>
-                  <option>IVAC, Sylhet</option>
-                  <option>IVAC, Khulna</option>
-                </select>
+            </section>
+            <section class="bp-section">
+              <div class="bp-section-heading">AUTOMATION MATRIX</div>
+              <div class="bp-toggle-grid">
+                <label class="bp-check"><input type="checkbox" data-setting="autoSignIn"> Auto sign-in</label>
+                <label class="bp-check"><input type="checkbox" data-setting="autoOtpFill"> Auto OTP fill</label>
+                <label class="bp-check"><input type="checkbox" data-setting="autoSubmitOtp"> Auto-submit OTP</label>
+                <label class="bp-check"><input type="checkbox" data-setting="autoUploadPdf"> Auto upload PDF</label>
+                <label class="bp-check"><input type="checkbox" data-setting="autoClosePopups"> Auto close popups</label>
+                <label class="bp-check"><input type="checkbox" data-setting="autoSlotRotation"> Auto slot rotation</label>
+                <label class="bp-check"><input type="checkbox" data-setting="autoNavigate"> Auto navigate</label>
+                <label class="bp-check"><input type="checkbox" data-setting="autoMissionCenter"> Auto mission/center</label>
               </div>
-            </div>
+            </section>
+            <section class="bp-section bp-payment-note">
+              <div class="bp-section-heading">PAYMENT HANDOFF</div>
+              <p>Payment remains manual on the official page. This extension does not collect or store a bKash PIN and will not submit a payment.</p>
+            </section>
+            <button id="reset-config-btn" class="bp-secondary-btn">RESET AUTOMATION SETTINGS</button>
           </div>
 
-          <!-- LICENSE TAB VIEW -->
-          <div id="view-license" class="tab-view" style="display: none; font-size: 11px; color: #aaa; text-align: center; padding: 20px;">
-            <div style="color: #00ff88; font-weight: bold;">PRO LICENSE ACTIVE</div>
+          <div id="view-log" class="tab-view" hidden>
+            <div class="bp-log-heading"><strong>SESSION LOG</strong><button id="clear-log-btn">CLEAR</button></div>
+            <div id="va-log-list" role="log" aria-live="polite"></div>
           </div>
 
+          <div id="view-debug" class="tab-view" hidden>
+            <section class="bp-section">
+              <div class="bp-section-heading">LIVE DIAGNOSTICS</div>
+              <dl class="bp-debug-list">
+                <dt>Runtime</dt><dd id="debug-runtime">Checking…</dd>
+                <dt>Detected step</dt><dd id="debug-step">—</dd>
+                <dt>Page selectors</dt><dd id="debug-selectors">—</dd>
+                <dt>Files loaded</dt><dd id="debug-files">0 / 4</dd>
+                <dt>Phone relay</dt><dd id="debug-relay">—</dd>
+                <dt>Automation</dt><dd id="debug-settings">—</dd>
+              </dl>
+              <p class="bp-note">Diagnostics never display your password, OTP, file contents, Client Key, or payment credentials.</p>
+              <button id="debug-rescan-btn" class="bp-secondary-btn">RESCAN PAGE</button>
+            </section>
+          </div>
         </div>
       </div>
     `;
@@ -302,22 +365,15 @@ function createFloatingPanel() {
     document.body.appendChild(div);
     document.getElementById('phone-field').value = result.savedPhone || '';
     document.getElementById('pass-field').value = result.savedPass || '';
+    initAutomationControls(result.automationSettings);
     compactPanel(document.getElementById('visa-automator-floating-panel'));
 
     updateSlotDisplayStatus();
     updateStepTrackerUI();
+    refreshConfigDropdowns(result.savedMission, result.savedCenter);
 
     const missionSelect = document.getElementById('config-mission');
     const centerSelect = document.getElementById('config-center');
-    for (const select of [missionSelect, centerSelect]) {
-      const blank = document.createElement('option');
-      blank.value = '';
-      blank.textContent = 'Select…';
-      select.prepend(blank);
-      select.value = '';
-    }
-    if (result.savedMission && missionSelect) missionSelect.value = result.savedMission;
-    if (result.savedCenter && centerSelect) centerSelect.value = result.savedCenter;
 
     document.getElementById('phone-field').addEventListener('input', (e) => {
       chrome.storage.local.set({ savedPhone: e.target.value });
@@ -337,18 +393,73 @@ function createFloatingPanel() {
     }
 
     // Tab Switching
-    document.getElementById('tab-run-btn').addEventListener('click', () => switchTab('RUN', 'tab-run-btn'));
-    document.getElementById('tab-config-btn').addEventListener('click', () => switchTab('CONFIG', 'tab-config-btn'));
-    document.getElementById('tab-license-btn').addEventListener('click', () => switchTab('LICENSE', 'tab-license-btn'));
+    [['RUN', 'tab-run-btn'], ['CONFIG', 'tab-config-btn'], ['LOG', 'tab-log-btn'], ['DEBUG', 'tab-debug-btn']]
+      .forEach(([name, id]) => document.getElementById(id).addEventListener('click', () => switchTab(name, id)));
 
     function switchTab(tabName, btnId) {
-      document.querySelectorAll('.tab-view').forEach(el => el.style.display = 'none');
-      document.querySelectorAll('[id^="tab-"]').forEach(b => { b.style.background = '#161722'; b.style.color = '#aaa'; });
-      document.getElementById(`view-${tabName.toLowerCase()}`).style.display = 'block';
-      const activeBtn = document.getElementById(btnId);
-      activeBtn.style.background = '#00b359';
-      activeBtn.style.color = '#fff';
+      document.querySelectorAll('.tab-view').forEach(el => { el.hidden = true; });
+      document.querySelectorAll('.bp-tab').forEach(button => button.setAttribute('aria-selected', 'false'));
+      document.getElementById(`view-${tabName.toLowerCase()}`).hidden = false;
+      document.getElementById(btnId).setAttribute('aria-selected', 'true');
+      if (tabName === 'DEBUG') updateDebugPanel();
     }
+
+    document.getElementById('reset-config-btn').addEventListener('click', () => {
+      automationSettings = { ...AUTOMATION_DEFAULTS };
+      chrome.storage.local.set({ automationSettings });
+      syncAutomationControls();
+      logMessage('Automation settings restored to defaults.');
+    });
+    document.getElementById('clear-log-btn').addEventListener('click', () => {
+      document.getElementById('va-log-list').replaceChildren();
+      logMessage('Session log cleared.');
+    });
+    document.getElementById('debug-rescan-btn').addEventListener('click', () => {
+      refreshConfigDropdowns();
+      updateDebugPanel();
+      if (isRunning) scheduleWorkflow(0);
+    });
+    document.getElementById('fix-upload-btn').addEventListener('click', () => {
+      const candidate = fileInputs().find(input => !input.disabled);
+      if (candidate) {
+        candidate.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        candidate.focus?.();
+        updateStage('Upload check', '70%', 'Upload field found. Complete any site security check manually.');
+      } else {
+        document.getElementById(`slot-file-${primarySlotKey || 1}`)?.click();
+        updateStage('Upload check', '70%', 'Choose or replace the primary PDF, then resume.');
+      }
+      logMessage('Upload recovery check opened; no site validation was bypassed.');
+    });
+    document.getElementById('fix-otp-btn').addEventListener('click', () => {
+      const field = first(PAGE.otp);
+      if (!field) {
+        updateStage('OTP check', '30%', 'OTP field is not visible yet; the detector will keep watching.');
+      } else {
+        field.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        field.focus();
+        pollOTPFromBackground();
+      }
+      if (isRunning) scheduleWorkflow(0);
+    });
+    document.getElementById('fix-cf-btn').addEventListener('click', () => {
+      const captcha = first(PAGE.captcha);
+      if (captcha) {
+        captcha.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        updateStage('Security check', '65%', 'Complete the official security challenge manually; the extension will detect its verified response.');
+      } else {
+        updateStage('Security check', '65%', 'No CAPTCHA is currently visible. The page will be rechecked.');
+        if (isRunning) scheduleWorkflow(0);
+      }
+      logMessage('Security check re-scan requested; CAPTCHA remains manual.');
+    });
+    document.getElementById('force-resume-btn').addEventListener('click', () => {
+      if (!isRunning) startAutomation();
+      if (activeStep && !activeStep.submitted && activeStep.kind !== 'otp') activeStep.nextTry = 0;
+      if (popupContinuation && !popupContinuation.submitted) popupContinuation.nextTry = 0;
+      updateStage('Resuming', '20%', 'Rescanning the current page without bypassing CAPTCHA, upload checks, or confirmations.');
+      scheduleWorkflow(0);
+    });
 
     document.getElementById('workflow-retry').addEventListener('click', () => {
       if (activeStep) runManualStep(activeStep.kind);
@@ -389,7 +500,7 @@ function createFloatingPanel() {
           slotBtn.style.background = slotNum == primarySlotKey ? '#00b359' : '#28293d';
           slotBtn.style.color = '#fff';
           updateSlotDisplayStatus();
-          logMessage(`Slot ${slotNum} loaded: ${file.name}`);
+          logMessage(`${FILE_SLOT_LABELS[slotNum]} loaded: ${file.name}`);
 
           try {
             const base64Data = await fileToBase64(file);
@@ -416,7 +527,7 @@ function createFloatingPanel() {
         document.querySelectorAll('.primary-toggle-btn').forEach(b => {
           b.style.background = '#161722';
           b.style.color = '#666';
-          b.innerText = 'Make Primary';
+          b.innerText = 'MAKE PRIMARY';
         });
         document.querySelectorAll('.webfile-slot-btn').forEach(b => {
           b.style.background = '#161722';
@@ -424,16 +535,16 @@ function createFloatingPanel() {
 
         btn.style.background = '#00b35922';
         btn.style.color = '#00ff88';
-        btn.innerText = '★ Primary';
+        btn.innerText = '★ PRIMARY';
 
         const activeSlotBtn = document.querySelector(`.webfile-slot-btn[data-slot="${slotNum}"]`);
         if (uploadedFilesMap[slotNum]) activeSlotBtn.style.background = '#00b359';
         document.querySelectorAll('.webfile-slot-btn').forEach(b => {
-          b.textContent = `${b.dataset.slot}${b.dataset.slot == primarySlotKey ? ' [P]' : ''}`;
+          b.textContent = FILE_SLOT_LABELS[b.dataset.slot];
         });
         updateSlotDisplayStatus();
 
-        logMessage(`Slot ${slotNum} set as Primary File.`);
+        logMessage(`${FILE_SLOT_LABELS[slotNum]} set as the primary PDF.`);
       });
     });
 
@@ -478,6 +589,11 @@ function createFloatingPanel() {
         startAutomation();
         chrome.storage.local.set({ automatorRunning: true });
       }
+    });
+
+    document.getElementById('pause-btn').addEventListener('click', () => {
+      if (isRunning) stopAutomation(true);
+      else if (isPaused) startAutomation();
     });
 
     document.getElementById('stop-btn').addEventListener('click', () => {
@@ -581,39 +697,66 @@ function updateSlotDisplayStatus() {
   if (countLbl) countLbl.innerText = `${count} / 4`;
 
   const quickStatus = document.getElementById('manual-file-quick-status');
-  if (quickStatus) quickStatus.innerText = `Files: ${count}/4`;
+  if (quickStatus) quickStatus.innerText = `FILES ${count}/4`;
+  const debugFiles = document.getElementById('debug-files');
+  if (debugFiles) debugFiles.textContent = `${count} / 4`;
 
   const statusDesc = document.getElementById('slot-names-display');
   if (statusDesc) {
     let names = [];
     FILE_SLOTS.forEach(k => {
       if (uploadedFilesMap[k]) {
-        let label = k == primarySlotKey ? `[Primary: ${uploadedFilesMap[k].name}]` : `${uploadedFilesMap[k].name}`;
+         let label = `${FILE_SLOT_LABELS[k]}: ${uploadedFilesMap[k].name}${k == primarySlotKey ? ' ★' : ''}`;
         names.push(label);
       }
     });
-    statusDesc.innerText = names.length > 0 ? names.join(' | ') : 'Primary file will be uploaded first automatically.';
+    statusDesc.innerText = names.length > 0 ? names.join(' · ') : 'Primary PDF uploads first; additional applicant files follow.';
   }
 }
 
 function updateStepTrackerUI() {
   const box = document.getElementById('workflow-status');
-  if (!box) return;
   const current = cleanupPending ? 'popups' : popupContinuation?.kind || activeStep?.kind;
+  const working = isRunning && !resetInProgress;
+  const complete = stepStatus.paymentReached;
+  const title = resetInProgress ? 'Resetting…' : complete ? 'Payment / confirmation reached' :
+    TRACKER_STEPS.find(item => item.kind === current)?.title ||
+    (isPaused ? 'Paused' : isRunning ? 'Detecting current step' : 'Ready');
+  const runState = document.getElementById('panel-run-state');
+  if (runState) {
+    runState.textContent = complete ? 'MANUAL PAYMENT' : isPaused ? 'PAUSED' : isRunning ? 'RUNNING' : 'IDLE';
+    runState.dataset.state = complete ? 'manual' : isPaused ? 'paused' : isRunning ? 'running' : 'idle';
+  }
+  const stageLabel = document.getElementById('panel-stage-label');
+  if (stageLabel) stageLabel.textContent = (currentStageName || title).toUpperCase();
+  const pauseButton = document.getElementById('pause-btn');
+  if (pauseButton) pauseButton.textContent = isPaused ? '▶ RESUME' : 'Ⅱ PAUSE';
+  const stageMetric = document.getElementById('metric-stage');
+  if (stageMetric) stageMetric.textContent = currentStageName || title;
+  const preferredMetric = document.getElementById('metric-preferred');
+  if (preferredMetric) preferredMetric.textContent = automationSettings.preferredDate || 'Any';
+  document.querySelectorAll('[data-roadmap-id]').forEach(el => {
+    const item = ROADMAP.find(step => step.id === el.dataset.roadmapId);
+    const done = item?.done.some(key => !!stepStatus[key]);
+    const active = !done && item?.kinds.includes(current);
+    el.dataset.bpStep = done ? 'complete' : active ? 'active' : 'upcoming';
+    el.setAttribute('aria-current', active ? 'step' : 'false');
+  });
+  if (!box) {
+    updateDebugPanel();
+    return;
+  }
   const step = TRACKER_STEPS.find(item => item.kind === current);
   const last = [...trackerHistory].reverse().find(kind => {
     const item = TRACKER_STEPS.find(s => s.kind === kind);
     return item?.key ? stepStatus[item.key] : kind === 'next' && trackerNextComplete;
   });
-  const complete = stepStatus.paymentReached || (!current && !!last);
-  const working = isRunning && !resetInProgress;
-  const title = resetInProgress ? 'Resetting…' : stepStatus.paymentReached ? 'Payment / confirmation reached' : step?.title ||
-    (isRunning ? 'Detecting current step' : complete ? 'Step completed' : 'Ready');
   document.getElementById('workflow-title').textContent = title;
   document.getElementById('workflow-detail').textContent = resetInProgress ? 'Clearing all saved extension data…' :
+    isPaused ? 'Paused on the current page. Press Resume to continue.' :
     !isRunning && current ? 'Stopped. Press Start to resume detection.' :
     currentStageDetail || (working ? 'Watching the page for available elements…' :
-    complete ? 'Press Start to continue from the current page.' : 'Press Start to detect the current step.');
+    (complete || last) ? 'Review and continue manually on the official payment page.' : 'Press Start to detect the current step.');
   const indicator = document.getElementById('workflow-indicator');
   indicator.className = working || resetInProgress ? 'va-working' : '';
   indicator.textContent = working || resetInProgress ? '' : complete ? '✓' : '•';
@@ -621,6 +764,7 @@ function updateStepTrackerUI() {
   const retry = document.getElementById('workflow-retry');
   retry.hidden = !activeStep || working || resetInProgress;
   retry.disabled = resetInProgress;
+  updateDebugPanel();
 }
 
 function compactPanel(panel) {
@@ -650,6 +794,7 @@ function resetPanelState() {
   phoneStatusTimer = null;
   renderPhoneState();
   isRunning = false;
+  isPaused = false;
   clearTimeout(automatorInterval);
   automatorInterval = null;
   workflowObserver?.disconnect();
@@ -661,15 +806,21 @@ function resetPanelState() {
   trackerHistory.length = 0;
   trackerNextComplete = false;
   for (const key of Object.keys(stepStatus)) stepStatus[key] = false;
+  automationSettings = { ...AUTOMATION_DEFAULTS };
   uploadedFilesMap = { 1: null, 2: null, 3: null, 4: null };
   primarySlotKey = null;
   attemptCount = 0;
   currentStageDetail = '';
+  currentStageName = 'Ready';
   const panel = document.getElementById('visa-automator-floating-panel');
   if (panel) {
-    panel.querySelectorAll('input, select').forEach(el => { el.value = ''; });
+    panel.querySelectorAll('input, select').forEach(el => {
+      if (el.type === 'checkbox') el.checked = false;
+      else if (!el.matches('[data-setting]')) el.value = '';
+    });
+    syncAutomationControls();
     panel.querySelectorAll('.webfile-slot-btn').forEach(el => {
-      el.textContent = el.dataset.slot;
+      el.textContent = FILE_SLOT_LABELS[el.dataset.slot];
       el.style.background = '#161722';
       el.style.color = '#aaa';
     });
@@ -680,7 +831,7 @@ function resetPanelState() {
     });
     panel.style.left = '16px';
     panel.style.top = '16px';
-    const log = panel.querySelector('#view-run > div:last-child');
+    const log = panel.querySelector('#va-log-list');
     if (log) log.replaceChildren();
   }
   for (const [id, value] of [['metric-attempts', '0'], ['metric-cycle', '1'], ['metric-dates', '0'], ['metric-next', '-']]) {
@@ -698,35 +849,67 @@ function revealTrackerStep(kind) {
 let trackerNextComplete = false;
 
 function logMessage(msg) {
-  const logBox = document.querySelector('#view-run > div:last-child');
-  if (logBox) {
+  const logBoxes = document.querySelectorAll('#va-log-list');
+  for (const logBox of logBoxes) {
     const entry = document.createElement('div');
-    entry.textContent = `> ${msg}`;
+    entry.className = 'bp-log-entry';
+    entry.textContent = `${new Date().toLocaleTimeString()} · ${msg}`;
     logBox.appendChild(entry);
     while (logBox.children.length > 150) logBox.firstElementChild.remove();
     logBox.scrollTop = logBox.scrollHeight;
+  }
+  updateDebugPanel();
+}
+
+function updateDebugPanel() {
+  const set = (id, value) => {
+    const element = document.getElementById(id);
+    if (element) element.textContent = value;
+  };
+  const visibleSelects = typeof PAGE !== 'undefined' ? all(`${PAGE.mission}, ${PAGE.center}`).length : 0;
+  const visibleUploads = typeof PAGE !== 'undefined' ? fileInputs().length : 0;
+  const relayText = document.getElementById('phone-pair-status')?.textContent?.trim() || 'Not paired';
+  set('debug-runtime', isRunning ? 'Active observer' : isPaused ? 'Paused' : 'Idle');
+  set('debug-step', activeStep?.kind || popupContinuation?.kind || 'No active step');
+  set('debug-selectors', `${visibleSelects} mission/center · ${visibleUploads} upload fields`);
+  set('debug-files', `${FILE_SLOTS.filter(slot => uploadedFilesMap[slot]).length} / 4`);
+  set('debug-relay', relayText.split(/[·]/)[0].trim() || 'Unknown');
+  const enabledSettings = Object.entries(automationSettings)
+    .filter(([key, value]) => key.startsWith('auto') && value === true).length;
+  set('debug-settings', `${enabledSettings} automation toggles on · ${automationSettings.scanGapMs} ms scan`);
+  const available = document.getElementById('metric-available');
+  if (available && typeof PAGE !== 'undefined') {
+    const dates = availableCalendarDates(document).length;
+    available.textContent = dates ? String(dates) : '—';
   }
 }
 
 function updateStage(stageName, progressWidth, desc = '') {
   currentStageDetail = desc;
+  currentStageName = stageName;
   const stageTxt = document.getElementById('current-stage-txt');
   const progressBar = document.getElementById('progress-bar');
   const stageDesc = document.getElementById('stage-desc');
   if (stageTxt) stageTxt.innerText = stageName;
   if (progressBar) progressBar.style.width = progressWidth;
   if (stageDesc && desc) stageDesc.innerText = desc;
+  const metric = document.getElementById('metric-stage');
   updateStepTrackerUI();
 }
 
 function startAutomation() {
   if (isRunning || resetInProgress) return;
   isRunning = true;
+  isPaused = false;
   chrome.storage.local.set({ automatorRunning: true });
+  refreshConfigDropdowns();
   logMessage('Adaptive automation started. Waiting for verified page transitions.');
   workflowObserver = new MutationObserver(records => {
     // Ignore panel-only changes so logging does not trigger an endless observer loop.
-    if (records.some(r => !inPanel(r.target))) scheduleWorkflow(100);
+    if (records.some(r => !inPanel(r.target))) {
+      refreshConfigDropdowns();
+      scheduleWorkflow(100);
+    }
   });
   workflowObserver.observe(document.body, {
     subtree: true, childList: true, attributes: true,
@@ -736,8 +919,9 @@ function startAutomation() {
   executeWorkflowSteps();
 }
 
-function stopAutomation() {
+function stopAutomation(paused = false) {
   isRunning = false;
+  isPaused = paused;
   otpRequestVersion++;
   if (otpSession) otpSession.fetchPending = false;
   clearTimeout(automatorInterval);
@@ -746,7 +930,7 @@ function stopAutomation() {
   workflowObserver = null;
   chrome.storage.local.set({ automatorRunning: false });
   updateStepTrackerUI();
-  logMessage('Automation stopped.');
+  logMessage(paused ? 'Automation paused at the current step.' : 'Automation stopped.');
 }
 
 function pushManualOTP() {
@@ -756,7 +940,8 @@ function pushManualOTP() {
 function getOTPSession() {
   if (!otpSession) otpSession = {
     attempted: new Set(), submitted: false, manualPageInput: false,
-    revision: 0, fetchPending: false, nextFetchAt: 0, fetchFailures: 0
+    revision: 0, fetchPending: false, nextFetchAt: 0, fetchFailures: 0,
+    awaitingManualSubmit: false, relayCode: null, relayMessageId: null
   };
   return otpSession;
 }
@@ -776,7 +961,8 @@ function pollOTPFromBackground(automatic = false) {
   const generation = storageGeneration;
   const session = getOTPSession();
   const rejected = activeStep?.kind === 'otp' && !!first(PAGE.otpError, activeStep.root);
-  if (resetInProgress || session.fetchPending || session.manualPageInput ||
+  if (resetInProgress || (automatic && !automationSettings.autoOtpFill) ||
+    session.awaitingManualSubmit || session.fetchPending || session.manualPageInput ||
     (session.submitted && !rejected) || (automatic && Date.now() < session.nextFetchAt)) return;
   const revision = session.revision;
   const requestVersion = ++otpRequestVersion;
@@ -831,7 +1017,7 @@ function submitOTPOnce(step, verify) {
   const session = getOTPSession();
   const code = otpCode(step.el.value);
   const rejected = !!first(PAGE.otpError, step.root);
-  if (session.manualPageInput || session.attempted.has(code) ||
+  if (!automationSettings.autoSubmitOtp || session.manualPageInput || session.attempted.has(code) ||
     (session.submitted && !rejected) || !validOTP(code, step.el) ||
     !step.el.checkValidity() || !enabled(verify) || busy(step.root) || captchaPending(step.root)) return false;
   // Record BEFORE clicking: synchronous rerenders or event handlers cannot resend.
@@ -847,15 +1033,18 @@ function submitOTPOnce(step, verify) {
   } finally {
     session.autoSubmitting = false;
   }
-  if (session.relayMessageId && session.relayCode === code) {
-    chrome.runtime.sendMessage({ type: 'PHONE_ACK_OTP', messageId: session.relayMessageId }, () => {
-      // Access lastError to suppress an unhandled worker-disconnect warning.
-      if (chrome.runtime.lastError) logMessage('OTP receipt could not be saved; this session will still never resubmit the code.');
-    });
-  }
+  acknowledgeRelayOTP(session, code);
   updateStage('OTP verification', '30%', 'OTP submitted once. Waiting for verification; no automatic resubmission.');
   logMessage('OTP submitted once; waiting for the verified page transition.');
   return true;
+}
+function acknowledgeRelayOTP(session, code) {
+  if (!session?.relayMessageId || session.relayCode !== code) return;
+  const messageId = session.relayMessageId;
+  session.relayMessageId = null;
+  chrome.runtime.sendMessage({ type: 'PHONE_ACK_OTP', messageId }, () => {
+    if (chrome.runtime.lastError) logMessage('OTP receipt could not be saved; this code will not be resubmitted in this session.');
+  });
 }
 function performOTP(step) {
   const session = getOTPSession();
@@ -871,6 +1060,11 @@ function performOTP(step) {
   const code = otpCode(document.getElementById('otp-input-field')?.value);
   if (validOTP(code, step.el) && !session.attempted.has(code)) {
     setValue(step.el, code);
+    if (!automationSettings.autoSubmitOtp) {
+      session.awaitingManualSubmit = true;
+      updateStage('OTP ready', '30%', 'OTP filled once. Submit it on the official page to continue.');
+      return;
+    }
     submitOTPOnce(step, button(OTP_SUBMIT_LABEL, step.root));
     return;
   }
@@ -905,10 +1099,53 @@ function observeManualOTP(event) {
   if (!submitting) return;
   const code = otpCode(field.value);
   if (code) session.attempted.add(code);
+  session.awaitingManualSubmit = false;
+  acknowledgeRelayOTP(session, code);
   session.manualPageInput = true;
   session.submitted = true;
   session.revision++;
   if (activeStep?.kind === 'otp') activeStep.submitted = true;
+  scheduleWorkflow(0);
+}
+
+function observeManualWorkflowAction(event) {
+  const step = popupContinuation || activeStep;
+  if (!event.isTrusted || inPanel(event.target) || !step || step.kind === 'otp') return;
+  const control = event.type === 'submit' ?
+    (event.submitter || event.target.querySelector?.('button[type="submit"], input[type="submit"]')) :
+    event.target.closest?.('button, a[href], input[type="submit"], input[type="button"], [role="button"]');
+  if (!control || !step.root.contains(control)) return;
+  const patterns = {
+    login: /^sign in(?: now)?$|^log in$|^login$/i,
+    signIn: /^sign in(?: now)?$|^log in$|^login$|^continue$|^next$/i,
+    appointment: /^take your appointment\b/i,
+    next: NEXT_LABEL,
+    details: DETAILS_LABEL,
+    upload: /^(confirm all information is correct|continue|next|proceed)$/i,
+    mission: CENTER_CONFIRM_LABEL,
+    booking: /^continue booking$/i
+  };
+  if (!patterns[step.kind]?.test(label(control))) return;
+  if (step.kind === 'upload') {
+    const inputs = fileInputs(step.root);
+    const hasUploadedFile = inputs.some(input => uploadSucceeded(input));
+    const pendingRequired = inputs.some(input => input.required && !uploadSucceeded(input));
+    const pendingSelected = inputs.some(input => input.files?.length && !uploadSucceeded(input));
+    if (!hasUploadedFile || pendingRequired || pendingSelected) return;
+    step.uploadContinueSent = true;
+    step.uploadRecords ||= [];
+  }
+  if (step.kind === 'mission') stepStatus.centerSelected = true;
+  if (step.kind === 'booking') {
+    if (!step.calendar) return;
+    step.calendar.continueSent = true;
+    step.calendar.nextAttemptAt = Date.now() + SLOT_RETRY_MS;
+    persistCalendarRetry(step.calendar);
+  }
+  step.submitted = true;
+  step.manualSubmitted = true;
+  step.nextTry = Date.now() + 1200;
+  logMessage(`${step.kind}: manual page action detected; waiting for a verified transition.`);
   scheduleWorkflow(0);
 }
 
@@ -941,7 +1178,8 @@ const PAGE = {
 };
 const STATUS_KEY = {
   signIn: 'signIn', otp: 'otpVerified', appointment: 'takeAppointmentClicked',
-  upload: 'filesUploaded', mission: 'missionSelected', booking: 'slotBooked'
+  upload: 'filesUploaded', mission: 'missionSelected', booking: 'slotBooked',
+  details: 'detailsConfirmed'
 };
 let workflowObserver = null;
 let activeStep = null;
@@ -995,8 +1233,13 @@ function click(el, delay = 3000) {
   el.click();
   return true;
 }
+function pageRateLimited(root = document) {
+  if (first('[data-http-status="429"], [data-status="429"], [data-error-code="429"]', root)) return true;
+  return /(?:\b429\b|too many requests|rate limit(?:ed)?)/i.test((root?.innerText || '').slice(0, 12000));
+}
 function scheduleWorkflow(delay = 700) {
   if (!isRunning) return;
+  if (delay === 700) delay = automationSettings.scanGapMs;
   const due = Date.now() + delay;
   if (automatorInterval && scheduledAt <= due) return;
   clearTimeout(automatorInterval);
@@ -1020,6 +1263,7 @@ function hasWorkflowControls(root) {
     fileInputs(root).length > 0 || !!first(PAGE.captcha, root);
 }
 function executePopupCleanup() {
+  if (!automationSettings.autoClosePopups) return false;
   let closed = false;
   const dialogs = all(PAGE.dialogs).reverse();
   for (const dialog of dialogs) {
@@ -1091,7 +1335,10 @@ function detectSteps() {
 function status(kind, done) {
   if (STATUS_KEY[kind]) stepStatus[STATUS_KEY[kind]] = done;
   if (kind === 'otp' && done) clearOTPSession();
-  if (kind === 'next') trackerNextComplete = done;
+  if (kind === 'next') {
+    trackerNextComplete = done;
+    stepStatus.noticeConfirmed = done;
+  }
   revealTrackerStep(kind);
   updateStepTrackerUI();
 }
@@ -1102,12 +1349,23 @@ function newStep(candidate) {
 }
 function submitStep(step, el) {
   if (step.kind === 'otp') return submitOTPOnce(step, el);
+  if (['login', 'signIn', 'appointment', 'next', 'details', 'mission', 'booking'].includes(step.kind) &&
+      !automationSettings.autoNavigate) {
+    updateStage('Manual navigation', '45%', 'Auto navigate is off. Use the official page control; detection will resume afterward.');
+    return false;
+  }
   if (Date.now() < step.nextTry || !el || busy(step.root) || captchaPending(step.root)) return false;
+  if (pageRateLimited(step.root)) {
+    step.nextTry = Date.now() + automationSettings.rate429BackoffMs;
+    updateStage('Rate limit backoff', '50%', `The page reports a rate limit. Waiting ${Math.ceil(automationSettings.rate429BackoffMs / 1000)} seconds before retrying.`);
+    return false;
+  }
   if (!click(el)) return false;
   step.tries++;
   step.submitted = true;
   // Persistent retries, capped at a 20-second interval, never rapid-fire requests.
-  step.nextTry = Date.now() + Math.min(20000, 3000 * 2 ** Math.min(step.tries - 1, 3));
+  step.nextTry = Date.now() + (pageRateLimited(step.root) ? automationSettings.rate429BackoffMs :
+    Math.min(20000, 3000 * 2 ** Math.min(step.tries - 1, 3)));
   logMessage(`${step.kind}: action sent; waiting for confirmation (attempt ${step.tries}).`);
   return true;
 }
@@ -1124,10 +1382,18 @@ function performStep(step) {
   const root = step.root;
   switch (step.kind) {
     case 'login':
+      if (!automationSettings.autoSignIn) {
+        updateStage('Sign in', '5%', 'Auto sign-in is off. Open the sign-in page manually.');
+        return;
+      }
       updateStage('Open sign-in', '5%', 'Opening the sign-in form before filling credentials.');
       submitStep(step, step.el);
       break;
     case 'signIn': {
+      if (!automationSettings.autoSignIn) {
+        updateStage('Sign in', '15%', 'Auto sign-in is off. Sign in on the official page; detection will resume.');
+        return;
+      }
       updateStage('Sign in', '15%', 'Waiting for sign-in acceptance.');
       const phone = first(PAGE.phone, root) || first(PAGE.phone);
       const pass = first('input[type="password"]', root);
@@ -1195,6 +1461,10 @@ function uploadReceipt(input) {
     .map(el => el.outerHTML || label(el))]);
 }
 function performUploads(step) {
+  if (!automationSettings.autoUploadPdf) {
+    updateStage('Upload documents', '70%', 'Auto upload is off. Upload the configured PDFs manually and wait for each confirmation.');
+    return;
+  }
   updateStage('Upload documents', '70%', 'Waiting for the primary document before secondary uploads.');
   const inputs = fileInputs(step.root);
   if (primarySlotKey && !uploadedFilesMap[primarySlotKey]) {
@@ -1270,6 +1540,10 @@ function performUploads(step) {
   updateStage('Upload documents', '80%', 'All loaded documents are acknowledged. Continuing…');
   const confirm = all('button, a[href], input[type="submit"], [role="button"]', step.root).find(el =>
     enabled(el) && /^(confirm all information is correct|continue|continue to (?!payment\b|checkout\b).+|next|proceed)$/i.test(label(el)));
+  if (confirm && !automationSettings.autoNavigate) {
+    updateStage('Upload documents', '80%', 'All PDFs are confirmed. Auto navigate is off; review and click the site confirmation manually.');
+    return;
+  }
   if (confirm && submitStep(step, confirm)) step.uploadContinueSent = true;
   // Completion remains locked until a stable, recognized next page appears.
 }
@@ -1287,12 +1561,29 @@ function performMissionSelection(step) {
   updateStage('Mission / center', '90%', 'Keeping the selected mission and choosing an available IVAC center.');
   if (first(PAGE.missionOK, step.root)) {
     status('mission', true);
+    stepStatus.centerSelected = true;
     activeStep = null;
+    return;
+  }
+  if (!automationSettings.autoMissionCenter) {
+    updateStage('Mission / center', '90%', 'Auto mission/center is off. Choose the center manually; the detector will resume.');
     return;
   }
   const mission = first(PAGE.mission, step.root);
   if (mission && !usableOption(mission.options[mission.selectedIndex])) {
     updateStage('Mission / center', '85%', 'Waiting for the page to select its mission.');
+    return;
+  }
+  const wantedMission = document.getElementById('config-mission')?.value;
+  if (mission && wantedMission && mission.value !== wantedMission) {
+    const missionOption = Array.from(mission.options).find(option =>
+      usableOption(option) && (option.value === wantedMission || option.textContent.trim() === wantedMission));
+    if (!missionOption) {
+      updateStage('Mission / center', '85%', 'Configured mission is not available on this page; no substitute will be selected.');
+      return;
+    }
+    setValue(mission, missionOption.value);
+    step.nextTry = Date.now() + 250;
     return;
   }
   const center = first(PAGE.center, step.root);
@@ -1322,7 +1613,9 @@ function performMissionSelection(step) {
     // Require the selected center to appear on the control before confirmation.
     const selected = step.centerChoice && label(control).includes(step.centerChoice);
     if (selected || (!/select\s+(?:your\s+)?ivac\s*cent(?:er|re)/i.test(label(control)) &&
-        control.getAttribute('data-state') === 'closed' && control.getAttribute('data-value'))) {
+          control.getAttribute('data-state') === 'closed' && control.getAttribute('data-value'))) {
+      stepStatus.centerSelected = true;
+      updateStepTrackerUI();
       submitStep(step, button(CENTER_CONFIRM_LABEL, step.root));
     } else click(control, 1500);
     return;
@@ -1346,6 +1639,8 @@ function performMissionSelection(step) {
     step.nextTry = Date.now() + 100;
     return;
   }
+  stepStatus.centerSelected = true;
+  updateStepTrackerUI();
   submitStep(step, button(/^save\s*(?:and|&)\s*continue$|^confirm mission(?:\s*(?:&|and)\s*ivac center)?$|^continue$|^next$|^proceed$/i, step.root));
 }
 const SLOT_RETRY_MS = 20000;
@@ -1359,6 +1654,7 @@ function paymentStageReached() {
 function finishAtPayment() {
   // Reaching payment is not proof of a paid or confirmed appointment.
   stepStatus.paymentReached = true;
+  stepStatus.dateContinued = true;
   if (first(PAGE.booked)) status('booking', true);
   activeStep = null;
   popupContinuation = null;
@@ -1368,7 +1664,9 @@ function finishAtPayment() {
   stopAutomation();
   updateStage('Payment / confirmation', '100%', 'Payment/confirmation reached. Automation stopped; review and continue manually.');
   const next = document.getElementById('metric-next');
-  if (next) next.innerText = '-';
+  if (next) next.innerText = '—';
+  const trying = document.getElementById('metric-trying');
+  if (trying) trying.textContent = '—';
   logMessage('Reached payment/confirmation. No payment or final-confirm button was clicked.');
 }
 function middleOut(items) {
@@ -1385,10 +1683,87 @@ function calendarDateKey(el) {
     el.getAttribute('aria-label') || el.getAttribute('title') ||
     `${first('.calendar-title, .p-datepicker-title')?.textContent?.trim() || ''}:${label(el)}`;
 }
+function calendarHeading(root = document) {
+  return all('.calendar-title, .p-datepicker-title, [data-calendar-title], h2, h3', root)
+    .map(label).find(text => /\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{4}\b/i.test(text)) || '';
+}
+function parseCalendarDate(el) {
+  const raw = [
+    el.getAttribute('data-date'), el.closest('[data-date]')?.getAttribute('data-date'),
+    el.getAttribute('datetime'), el.getAttribute('aria-label'), el.getAttribute('title'), label(el)
+  ].filter(Boolean).join(' ');
+  const iso = raw.match(/\b(\d{4})[-/](\d{1,2})[-/](\d{1,2})\b/);
+  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+  const dmy = raw.match(/\b(\d{1,2})[-/](\d{1,2})[-/](\d{4})\b/);
+  if (dmy) return new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]));
+  const monthAndYear = calendarHeading(el.closest('[role="dialog"], .calendar, [data-calendar]') || document);
+  const day = raw.match(/(?:^|\D)([1-9]|[12]\d|3[01])(?:\D|$)/)?.[1];
+  if (day && monthAndYear) {
+    const parsed = new Date(`${monthAndYear.replace(/\s+/g, ' ')} ${day}`);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  if (!/\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\d{4})\b/i.test(raw)) return null;
+  const parsed = Date.parse(raw);
+  return Number.isNaN(parsed) ? null : new Date(parsed);
+}
+function withinConfiguredMonthRange(el) {
+  const date = parseCalendarDate(el);
+  if (!date) return true;
+  const now = new Date();
+  const monthDistance = (date.getFullYear() - now.getFullYear()) * 12 + date.getMonth() - now.getMonth();
+  return monthDistance >= 0 && monthDistance < automationSettings.monthRange;
+}
+function monthKey(root = document, dates = []) {
+  const heading = calendarHeading(root);
+  const parsed = heading && Date.parse(`1 ${heading}`);
+  if (parsed && !Number.isNaN(parsed)) {
+    const date = new Date(parsed);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  }
+  const date = dates.length ? parseCalendarDate(dates[0]) : null;
+  return date ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}` : '';
+}
+function sortCalendarDates(dates) {
+  const indexed = dates.map((el, index) => ({ el, index, date: parseCalendarDate(el) }));
+  indexed.sort((a, b) => a.date && b.date ? a.date - b.date : a.index - b.index);
+  const ordered = indexed.map(item => item.el);
+  const preferred = automationSettings.preferredDate ? ordered.findIndex(el => {
+    const date = parseCalendarDate(el);
+    return date && `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}` === automationSettings.preferredDate;
+  }) : -1;
+  if (preferred >= 0) ordered.unshift(...ordered.splice(preferred, 1));
+  if (automationSettings.slotRotation === 'middle') {
+    const preferredElement = preferred >= 0 ? ordered.shift() : null;
+    const middle = middleOut(ordered);
+    return preferredElement ? [preferredElement, ...middle] : middle;
+  }
+  if (automationSettings.slotRotation === 'backward') {
+    const preferredElement = preferred >= 0 ? ordered.shift() : null;
+    ordered.reverse();
+    if (preferredElement) ordered.unshift(preferredElement);
+  }
+  return ordered;
+}
+function advanceCalendarMonth(step, state, currentMonth) {
+  if (state.visitedMonths.size >= automationSettings.monthRange) return false;
+  const nextMonth = first(
+    '[aria-label*="next month" i], [title*="next month" i], [data-calendar-next], [data-next-month], .calendar-next, .p-datepicker-next',
+    step.root
+  );
+  if (!nextMonth || !enabled(nextMonth) || !click(nextMonth, 1000)) return false;
+  if (currentMonth) state.visitedMonths.add(currentMonth);
+  state.selected = null;
+  state.continueSent = false;
+  state.nextAttemptAt = Date.now() + 500;
+  persistCalendarRetry(state);
+  updateStage('Calendar search', '95%', `Moving to the next available calendar month (${state.visitedMonths.size + 1}/${automationSettings.monthRange}).`);
+  scheduleWorkflow(500);
+  return true;
+}
 function persistCalendarRetry(state) {
   calendarResume = {
     tried: [...state.tried], nextAttemptAt: state.nextAttemptAt,
-    attempts: state.attempts, cycle: state.cycle
+    attempts: state.attempts, cycle: state.cycle, visitedMonths: [...state.visitedMonths]
   };
   chrome.storage.local.set({ calendarRetry: calendarResume });
 }
@@ -1404,7 +1779,8 @@ function availableCalendarDates(root) {
     all('button, [role="button"]', root).filter(el => /^(?:[1-9]|[12][0-9]|3[01])$/.test(label(el))) : [];
   return [...new Set([...explicit, ...standard, ...plain])].filter(el => enabled(el) &&
     !el.closest('.disabled, .p-disabled, [aria-disabled="true"], [disabled], [data-disabled="true"], [data-outside="true"]') &&
-    !el.matches?.('.react-datepicker__day--disabled, .react-datepicker__day--outside-month') && label(el));
+    !el.matches?.('.react-datepicker__day--disabled, .react-datepicker__day--outside-month') &&
+    label(el) && withinConfiguredMonthRange(el));
 }
 function performCalendarSearch(step) {
   if (paymentStageReached()) { finishAtPayment(); return; }
@@ -1412,17 +1788,42 @@ function performCalendarSearch(step) {
     tried: new Set(Array.isArray(calendarResume?.tried) ? calendarResume.tried : []),
     nextAttemptAt: Math.min(Number(calendarResume?.nextAttemptAt) || 0, Date.now() + SLOT_RETRY_MS),
     selected: null, continueSent: false, readyAt: 0,
-    attempts: Number(calendarResume?.attempts) || 0, cycle: Number(calendarResume?.cycle) || 1
+    attempts: Number(calendarResume?.attempts) || 0, cycle: Number(calendarResume?.cycle) || 1,
+    visitedMonths: new Set(Array.isArray(calendarResume?.visitedMonths) ? calendarResume.visitedMonths : [])
   };
   const state = step.calendar;
   const now = Date.now();
   const available = availableCalendarDates(step.root);
   const dates = [...new Map(available.map(el => [calendarDateKey(el), el])).values()];
+  const thisMonth = monthKey(step.root, dates);
+  if (thisMonth) state.visitedMonths.add(thisMonth);
   const count = document.getElementById('metric-dates');
   if (count) count.innerText = dates.length;
+  const availableMetric = document.getElementById('metric-available');
+  if (availableMetric) availableMetric.textContent = dates.length ? String(dates.length) : '—';
+
+  if (!automationSettings.autoSlotRotation && !state.selected) {
+    const selectedDate = dates.find(el => el.getAttribute('aria-selected') === 'true' ||
+      el.getAttribute('aria-pressed') === 'true' || el.matches('.selected, .active, .is-selected, [data-selected="true"]') ||
+      !!el.closest('.selected, .active, .is-selected, [data-selected="true"]'));
+    if (!selectedDate) {
+      updateStage('Calendar search', '95%', 'Auto slot rotation is off. Select an available date manually.');
+      return;
+    }
+    state.selected = calendarDateKey(selectedDate);
+    state.readyAt = now;
+    state.continueSent = false;
+    const tryingMetric = document.getElementById('metric-trying');
+    if (tryingMetric) tryingMetric.textContent = state.selected.slice(0, 24);
+  }
+
   // Continue once for this selected date, not repeatedly during the wait.
   if (state.selected && !state.continueSent && now >= state.readyAt) {
     const proceed = button(/^continue booking$/i, step.root);
+    if (!automationSettings.autoNavigate) {
+      updateStage('Calendar search', '95%', 'Date selected. Auto navigate is off; click Continue Booking manually.');
+      return;
+    }
     if (proceed && enabled(proceed) && click(proceed, SLOT_RETRY_MS)) {
       state.continueSent = true;
       step.submitted = true;
@@ -1441,12 +1842,15 @@ function performCalendarSearch(step) {
     return;
   }
   if (!dates.length) {
+    if (advanceCalendarMonth(step, state, thisMonth)) return;
     updateStage('Calendar search', '95%', 'No clickable dates are available. Continuing to watch the calendar.');
     return;
   }
-  const ordered = middleOut(dates);
+  if (!automationSettings.autoSlotRotation) return;
+  const ordered = sortCalendarDates(dates);
   let choice = ordered.find(el => !state.tried.has(calendarDateKey(el)));
   if (!choice) {
+    if (advanceCalendarMonth(step, state, thisMonth)) return;
     state.tried.clear();
     state.cycle++;
     choice = ordered[0];
@@ -1464,7 +1868,9 @@ function performCalendarSearch(step) {
   if (cycle) cycle.innerText = state.cycle;
   const next = document.getElementById('metric-next');
   if (next) next.innerText = '20s';
-  updateStage('Calendar search', '95%', `Selected an available date from the middle-first list (attempt ${state.attempts}).`);
+  const tryingMetric = document.getElementById('metric-trying');
+  if (tryingMetric) tryingMetric.textContent = key.slice(0, 24);
+  updateStage('Calendar search', '95%', `Selected an available date (${automationSettings.slotRotation}) — attempt ${state.attempts}.`);
   // Re-scan after the site's date-change handler; do not add a fixed half-second wait.
   scheduleWorkflow(0);
 }
@@ -1498,7 +1904,9 @@ function executeWorkflowSteps(requestedKind = null) {
     }
     if (popupContinuation?.submitted && !nextPopup) {
       trackerNextComplete = true;
+      stepStatus.noticeConfirmed = true;
       revealTrackerStep('next');
+      updateStepTrackerUI();
     }
     popupContinuation = null;
     if (activeStep?.kind === 'otp' && first(PAGE.otpOK, activeStep.root)) {
@@ -1573,7 +1981,8 @@ function executeWorkflowSteps(requestedKind = null) {
   } finally {
     executing = false;
     updateStepTrackerUI();
-    scheduleWorkflow(activeStep?.kind === 'otp' && !otpSession?.submitted ? 100 : 300);
+    scheduleWorkflow(activeStep?.kind === 'otp' && !otpSession?.submitted &&
+      !otpSession?.awaitingManualSubmit && automationSettings.autoOtpFill ? 100 : undefined);
   }
 }
 
@@ -1581,6 +1990,8 @@ function executeWorkflowSteps(requestedKind = null) {
 document.addEventListener?.('input', observeManualOTP, true);
 document.addEventListener?.('click', observeManualOTP, true);
 document.addEventListener?.('submit', observeManualOTP, true);
+document.addEventListener?.('click', observeManualWorkflowAction, true);
+document.addEventListener?.('submit', observeManualWorkflowAction, true);
 
 // Reopen the panel from Chrome's toolbar without resetting the active page.
 if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {

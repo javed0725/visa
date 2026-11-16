@@ -126,3 +126,17 @@ mtime_ms = 1794842181790
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c95153f8-4120-4f5d-9b29-b3fd42034cff/7e403efa-cbb6-4f27-a4b8-b78fe0eeae66/55ec860c-7a6a-4032-816f-39d124be4fd5"
 storage_version_token = "1794842220756670"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "kEl7vPAPGkZz3_T5n9XBJ"
+uri = "file://generated-artifacts/black-panther-slot-automation.zip"
+type = "unspecified"
+title = "BLACK PANTHER — SLOT AUTOMATION"
+description = "Complete Chrome Manifest V3 extension ZIP with the rebranded panel, automation settings, documentation, and four-PDF-slot workflow."
+logical_id = "acb00c85-de61-45de-8e65-1018ede0f4f9"
+content_hash = "sha256:631dae22b05726349b32475702ab26303145df104c98b00bc0b9d7b13e6c55a2"
+size = 43704
+mtime_ms = 1794845438515
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c95153f8-4120-4f5d-9b29-b3fd42034cff/acb00c85-de61-45de-8e65-1018ede0f4f9/5ba9e8e1-302e-4d27-92d1-01f76c2e93de"
+storage_version_token = "1794845463134456"
+content_type = "application/octet-stream"

@@ -1,0 +1,1227 @@
+/* BLACK PANTHER — SLOT AUTOMATION
+   A compact command surface: obsidian ink, ion cyan, and a measured violet signal.
+   Every selector is contained by the extension panel so the appointment host stays untouched. */
+
+#visa-automator-floating-panel {
+  --bp-void: #070a10;
+  --bp-shell: #0b1018;
+  --bp-panel: #101722;
+  --bp-raised: #151e2b;
+  --bp-input: #0b111a;
+  --bp-line: #263444;
+  --bp-line-bright: #3b5366;
+  --bp-text: #edf6fb;
+  --bp-muted: #a1b1c0;
+  --bp-dim: #748697;
+  --bp-cyan: #55e6e1;
+  --bp-cyan-strong: #20c9c7;
+  --bp-violet: #b49aff;
+  --bp-green: #81e7b4;
+  --bp-amber: #f3c66f;
+  --bp-red: #ff8a91;
+  --bp-shadow: 0 22px 64px rgba(0, 0, 0, .72), 0 0 0 1px rgba(85, 230, 225, .12);
+  --bp-radius: 10px;
+  position: fixed;
+  z-index: 999999;
+  width: 364px !important;
+  max-width: calc(100vw - 20px) !important;
+  color: var(--bp-text) !important;
+  background:
+    radial-gradient(ellipse at 88% 0%, rgba(83, 80, 150, .12), transparent 42%),
+    linear-gradient(155deg, #0e141e 0%, var(--bp-void) 70%) !important;
+  border: 1px solid #34495a !important;
+  border-radius: 13px !important;
+  box-shadow: var(--bp-shadow) !important;
+  font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif !important;
+  font-size: 12px;
+  line-height: 1.45;
+  color-scheme: dark;
+  overflow: hidden;
+  isolation: isolate;
+  -webkit-font-smoothing: antialiased;
+}
+
+#visa-automator-floating-panel,
+#visa-automator-floating-panel * {
+  box-sizing: border-box !important;
+}
+
+#visa-automator-floating-panel::before {
+  position: absolute;
+  z-index: 3;
+  inset: 0 0 auto;
+  height: 2px;
+  content: "";
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--bp-cyan), var(--bp-violet), transparent);
+  opacity: .88;
+}
+
+#visa-automator-floating-panel #panel-header {
+  min-height: 48px;
+  padding: 10px 12px !important;
+  color: var(--bp-text) !important;
+  background: linear-gradient(100deg, #111a25 0%, #0d131d 68%, #11131f 100%) !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--bp-line) !important;
+  border-radius: 12px 12px 0 0 !important;
+  cursor: move;
+}
+
+#visa-automator-floating-panel #panel-header > div:first-child {
+  gap: 9px !important;
+  min-width: 0;
+}
+
+#visa-automator-floating-panel #panel-header > div:first-child > span:first-child {
+  width: 9px !important;
+  height: 9px !important;
+  flex: 0 0 9px;
+  background: var(--bp-cyan) !important;
+  border-radius: 50%;
+  box-shadow: 0 0 11px rgba(85, 230, 225, .54);
+}
+
+/* Visually replace the legacy brand without changing extension logic or host content. */
+#visa-automator-floating-panel #panel-header > div:first-child > span:nth-child(2) {
+  display: inline-block;
+  max-width: 210px;
+  overflow: hidden;
+  color: transparent !important;
+  font-size: 0 !important;
+  line-height: 1 !important;
+  white-space: nowrap;
+}
+
+#visa-automator-floating-panel #panel-header > div:first-child > span:nth-child(2)::after {
+  content: "BLACK PANTHER";
+  color: var(--bp-text);
+  font-family: "Arial Narrow", "Avenir Next", sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .105em;
+}
+
+#visa-automator-floating-panel #panel-header > div:first-child > span:nth-child(3) {
+  padding: 3px 6px !important;
+  color: var(--bp-cyan) !important;
+  background: rgba(85, 230, 225, .08) !important;
+  border: 1px solid rgba(85, 230, 225, .24);
+  border-radius: 4px !important;
+  font-size: 8px !important;
+  font-weight: 700;
+  letter-spacing: .1em;
+}
+
+#visa-automator-floating-panel #panel-header > div:first-child > span:nth-child(3)::after {
+  content: " · SLOT AUTOMATION";
+  color: var(--bp-violet);
+}
+
+#visa-automator-floating-panel #panel-header > div:last-child {
+  gap: 5px !important;
+}
+
+#visa-automator-floating-panel #reset-panel {
+  padding: 5px 7px !important;
+  color: #ffc0c5 !important;
+  background: rgba(137, 48, 71, .22) !important;
+  border: 1px solid rgba(255, 138, 145, .31) !important;
+  border-radius: 5px !important;
+  font-size: 9px !important;
+  font-weight: 750;
+  letter-spacing: .06em;
+}
+
+#visa-automator-floating-panel #minimize-panel,
+#visa-automator-floating-panel #close-panel {
+  display: inline-grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  padding: 0 !important;
+  color: var(--bp-muted) !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: 6px;
+  font-size: 13px !important;
+}
+
+#visa-automator-floating-panel #panel-content {
+  max-height: min(660px, calc(100dvh - 68px)) !important;
+  padding: 12px !important;
+  overflow: auto;
+  scrollbar-color: #415467 #0a0e15;
+  scrollbar-width: thin;
+}
+
+#visa-automator-floating-panel #panel-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+#visa-automator-floating-panel #panel-content::-webkit-scrollbar-track {
+  background: #0a0e15;
+}
+
+#visa-automator-floating-panel #panel-content::-webkit-scrollbar-thumb {
+  background: #36495b;
+  border: 2px solid #0a0e15;
+  border-radius: 8px;
+}
+
+#visa-automator-floating-panel #panel-content > div:first-child {
+  margin-bottom: 11px !important;
+}
+
+#visa-automator-floating-panel #panel-content > div:first-child > div:first-child {
+  gap: 7px !important;
+  color: var(--bp-muted) !important;
+  font-size: 10px !important;
+  font-weight: 700;
+  letter-spacing: .09em;
+}
+
+#visa-automator-floating-panel #panel-content > div:first-child > div:first-child span:last-child {
+  color: var(--bp-cyan) !important;
+  background: rgba(85, 230, 225, .09) !important;
+  border: 1px solid rgba(85, 230, 225, .26) !important;
+  border-radius: 5px !important;
+}
+
+#visa-automator-floating-panel #panel-content > div:first-child > div:last-child span {
+  color: var(--bp-green) !important;
+  background: rgba(129, 231, 180, .08) !important;
+  border-color: rgba(129, 231, 180, .26) !important;
+}
+
+#visa-automator-floating-panel #legacy-stage-card,
+#visa-automator-floating-panel #view-run > section,
+#visa-automator-floating-panel #view-run > div,
+#visa-automator-floating-panel #view-config > div {
+  border-color: var(--bp-line) !important;
+}
+
+#visa-automator-floating-panel #legacy-stage-card,
+#visa-automator-floating-panel #view-run > section,
+#visa-automator-floating-panel #view-run > div:not([style*="display: grid"]),
+#visa-automator-floating-panel #view-config > div {
+  background-color: var(--bp-panel) !important;
+}
+
+#visa-automator-floating-panel #legacy-stage-card {
+  padding: 10px !important;
+  border-radius: var(--bp-radius) !important;
+}
+
+#visa-automator-floating-panel #legacy-stage-card #current-stage-txt,
+#visa-automator-floating-panel #workflow-title {
+  color: var(--bp-text) !important;
+}
+
+#visa-automator-floating-panel #progress-bar {
+  background: linear-gradient(90deg, var(--bp-cyan-strong), var(--bp-violet)) !important;
+  border-radius: 99px;
+}
+
+#visa-automator-floating-panel #legacy-stage-card > div:nth-child(2) {
+  background: #202a37 !important;
+}
+
+#visa-automator-floating-panel #legacy-stage-card > div:first-child > span:last-child {
+  color: var(--bp-muted) !important;
+  background: var(--bp-raised) !important;
+}
+
+/* Compact, thumb-friendly navigation. */
+#visa-automator-floating-panel #panel-content > div:nth-child(3) {
+  gap: 5px !important;
+  margin-bottom: 12px !important;
+  padding: 4px;
+  background: #090e15;
+  border: 1px solid #202d3a;
+  border-radius: 9px;
+}
+
+#visa-automator-floating-panel #tab-run-btn,
+#visa-automator-floating-panel #tab-config-btn,
+#visa-automator-floating-panel #tab-license-btn {
+  min-height: 34px;
+  padding: 7px 4px !important;
+  color: var(--bp-muted) !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: 6px !important;
+  font-size: 10px !important;
+  font-weight: 750;
+  letter-spacing: .045em;
+  white-space: nowrap;
+}
+
+#visa-automator-floating-panel #tab-run-btn {
+  color: var(--bp-cyan) !important;
+  background: rgba(85, 230, 225, .1) !important;
+  border-color: rgba(85, 230, 225, .2) !important;
+}
+
+#visa-automator-floating-panel .tab-view > div[style*="grid-template-columns"] {
+  gap: 8px !important;
+  margin-bottom: 10px !important;
+}
+
+#visa-automator-floating-panel label {
+  display: inline-block;
+  margin-bottom: 4px;
+  color: var(--bp-muted) !important;
+  font-size: 9px !important;
+  font-weight: 750;
+  letter-spacing: .075em;
+}
+
+#visa-automator-floating-panel input:not([type="checkbox"]):not([type="file"]),
+#visa-automator-floating-panel select,
+#visa-automator-floating-panel textarea {
+  min-height: 34px;
+  padding: 7px 9px !important;
+  color: var(--bp-text) !important;
+  background-color: var(--bp-input) !important;
+  border: 1px solid #344354 !important;
+  border-radius: 7px !important;
+  outline: none;
+  font-family: inherit !important;
+  font-size: 11px !important;
+  transition: border-color .16s ease, background-color .16s ease, box-shadow .16s ease;
+}
+
+#visa-automator-floating-panel input::placeholder,
+#visa-automator-floating-panel textarea::placeholder {
+  color: #8798a8 !important;
+  opacity: 1;
+}
+
+#visa-automator-floating-panel #otp-input-field {
+  color: var(--bp-cyan) !important;
+  font-size: 15px !important;
+  letter-spacing: .22em;
+}
+
+#visa-automator-floating-panel #phone-client-key {
+  color: #a7f3d2 !important;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace !important;
+  letter-spacing: .08em;
+}
+
+#visa-automator-floating-panel input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0 2px 0 0;
+  accent-color: var(--bp-cyan-strong);
+  vertical-align: -3px;
+}
+
+#visa-automator-floating-panel select option {
+  color: var(--bp-text);
+  background: var(--bp-shell);
+}
+
+#visa-automator-floating-panel #view-run > section {
+  padding: 9px !important;
+  border-radius: 9px !important;
+}
+
+#visa-automator-floating-panel #phone-copy-key,
+#visa-automator-floating-panel #phone-new-key,
+#visa-automator-floating-panel #phone-relay-setup,
+#visa-automator-floating-panel #send-otp-btn {
+  min-height: 30px;
+  color: var(--bp-text) !important;
+  background: #1b2734 !important;
+  border: 1px solid #34485a !important;
+  border-radius: 6px !important;
+  font-size: 10px !important;
+  font-weight: 650;
+}
+
+#visa-automator-floating-panel #phone-relay-setup {
+  color: var(--bp-cyan) !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+#visa-automator-floating-panel #send-otp-btn {
+  color: var(--bp-cyan) !important;
+  background: rgba(85, 230, 225, .08) !important;
+  border-color: rgba(85, 230, 225, .24) !important;
+}
+
+#visa-automator-floating-panel #start-btn,
+#visa-automator-floating-panel #pause-btn,
+#visa-automator-floating-panel #stop-btn {
+  min-height: 38px;
+  padding: 9px 5px !important;
+  border: 1px solid transparent !important;
+  border-radius: 7px !important;
+  font-size: 10px !important;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+#visa-automator-floating-panel #start-btn {
+  color: #061516 !important;
+  background: linear-gradient(110deg, #65ede3, #42d8d5) !important;
+  box-shadow: inset 0 1px rgba(255, 255, 255, .26);
+}
+
+#visa-automator-floating-panel #pause-btn {
+  color: #e4ceff !important;
+  background: rgba(126, 96, 185, .15) !important;
+  border-color: rgba(180, 154, 255, .24) !important;
+}
+
+#visa-automator-floating-panel #stop-btn {
+  color: #ffc0c5 !important;
+  background: rgba(132, 48, 63, .2) !important;
+  border-color: rgba(255, 138, 145, .28) !important;
+}
+
+#visa-automator-floating-panel .webfile-slot-btn {
+  min-height: 33px;
+  color: var(--bp-text) !important;
+  background: var(--bp-input) !important;
+  border: 1px solid #344354 !important;
+  border-radius: 6px !important;
+}
+
+#visa-automator-floating-panel .webfile-slot-btn[style*="00b359"],
+#visa-automator-floating-panel .webfile-slot-btn[style*="28293d"] {
+  color: #e7fffb !important;
+  background: rgba(32, 201, 199, .2) !important;
+  border-color: rgba(85, 230, 225, .55) !important;
+}
+
+#visa-automator-floating-panel .primary-toggle-btn {
+  min-height: 22px;
+  color: var(--bp-muted) !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+}
+
+#visa-automator-floating-panel .primary-toggle-btn[style*="00b35922"] {
+  color: var(--bp-violet) !important;
+  background: rgba(180, 154, 255, .1) !important;
+  border-color: rgba(180, 154, 255, .2) !important;
+}
+
+#visa-automator-floating-panel #slot-names-display {
+  color: var(--bp-muted) !important;
+  line-height: 1.45;
+}
+
+#visa-automator-floating-panel #workflow-status {
+  padding: 9px !important;
+  background: #0b1119 !important;
+  border: 1px solid #263544;
+  border-radius: 7px !important;
+}
+
+#visa-automator-floating-panel #workflow-indicator {
+  color: var(--bp-cyan) !important;
+}
+
+#visa-automator-floating-panel #workflow-indicator.va-working {
+  border-color: rgba(85, 230, 225, .24) !important;
+  border-top-color: var(--bp-cyan) !important;
+}
+
+#visa-automator-floating-panel #workflow-detail,
+#visa-automator-floating-panel #manual-file-quick-status,
+#visa-automator-floating-panel #phone-pair-status {
+  color: var(--bp-muted) !important;
+}
+
+#visa-automator-floating-panel #workflow-retry {
+  min-height: 28px;
+  color: #061516 !important;
+  background: var(--bp-cyan-strong) !important;
+  border: 1px solid rgba(85, 230, 225, .5) !important;
+  font-weight: 750;
+}
+
+#visa-automator-floating-panel #view-run > div[style*="display: flex"][style*="margin-bottom: 10px"] > div {
+  min-width: 0;
+  padding: 7px 3px !important;
+  background: #0e151f !important;
+  border-color: var(--bp-line) !important;
+}
+
+#visa-automator-floating-panel #metric-attempts,
+#visa-automator-floating-panel #metric-cycle,
+#visa-automator-floating-panel #metric-dates,
+#visa-automator-floating-panel #metric-next {
+  color: var(--bp-text) !important;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 14px !important;
+}
+
+#visa-automator-floating-panel #metric-dates {
+  color: var(--bp-cyan) !important;
+}
+
+#visa-automator-floating-panel #metric-next {
+  color: var(--bp-violet) !important;
+}
+
+#visa-automator-floating-panel #view-run > div[style*="height: 75px"] {
+  height: 88px !important;
+  padding: 9px !important;
+  color: #a9e9dc !important;
+  background: #080d13 !important;
+  border: 1px solid #263441 !important;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace !important;
+  font-size: 10px !important;
+  line-height: 1.65;
+}
+
+#visa-automator-floating-panel #view-config {
+  color: var(--bp-muted);
+}
+
+#visa-automator-floating-panel #view-config > div:first-child {
+  color: var(--bp-cyan) !important;
+  font-size: 10px !important;
+  letter-spacing: .1em;
+}
+
+#visa-automator-floating-panel #view-license {
+  color: var(--bp-muted) !important;
+}
+
+#visa-automator-floating-panel #view-license > div {
+  display: inline-block;
+  padding: 7px 11px;
+  color: var(--bp-cyan) !important;
+  background: rgba(85, 230, 225, .08);
+  border: 1px solid rgba(85, 230, 225, .24);
+  border-radius: 6px;
+  letter-spacing: .08em;
+}
+
+/* Semantic hooks for the expanded roadmap / quick actions implementation. */
+#visa-automator-floating-panel [data-bp="roadmap"],
+#visa-automator-floating-panel [data-bp="quick-actions"],
+#visa-automator-floating-panel [data-bp="metrics"],
+#visa-automator-floating-panel [data-bp="status-card"] {
+  color: var(--bp-text);
+  background: var(--bp-panel);
+  border: 1px solid var(--bp-line);
+  border-radius: var(--bp-radius);
+}
+
+#visa-automator-floating-panel [data-bp="roadmap"] {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  padding: 10px 7px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #415467 transparent;
+}
+
+#visa-automator-floating-panel [data-bp-step] {
+  position: relative;
+  display: grid;
+  flex: 1 0 42px;
+  justify-items: center;
+  gap: 5px;
+  min-width: 42px;
+  color: var(--bp-dim);
+  text-align: center;
+  font-size: 9px;
+}
+
+#visa-automator-floating-panel [data-bp-step]::before {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  content: attr(data-step);
+  color: var(--bp-muted);
+  background: #111a25;
+  border: 1px solid #3b4b5d;
+  border-radius: 50%;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+#visa-automator-floating-panel [data-bp-step="complete"]::before,
+#visa-automator-floating-panel [data-bp-step="active"]::before {
+  color: #071516;
+  background: var(--bp-cyan);
+  border-color: var(--bp-cyan);
+}
+
+#visa-automator-floating-panel [data-bp-step="active"]::before {
+  box-shadow: 0 0 0 3px rgba(85, 230, 225, .13);
+}
+
+#visa-automator-floating-panel [data-bp-step="blocked"]::before {
+  color: #e2cfff;
+  border-color: var(--bp-violet);
+}
+
+#visa-automator-floating-panel [data-bp="quick-actions"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 9px;
+}
+
+#visa-automator-floating-panel [data-bp-action] {
+  min-height: 32px;
+  padding: 6px 9px;
+  color: var(--bp-text);
+  background: #17222e;
+  border: 1px solid #34485a;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+#visa-automator-floating-panel [data-bp="metrics"] {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  padding: 7px;
+}
+
+#visa-automator-floating-panel [data-bp-metric] {
+  min-width: 0;
+  padding: 6px 3px;
+  color: var(--bp-muted);
+  background: #0c131c;
+  border: 1px solid #263644;
+  border-radius: 6px;
+  text-align: center;
+  font-size: 9px;
+}
+
+#visa-automator-floating-panel [data-bp-metric] strong {
+  display: block;
+  color: var(--bp-cyan);
+  font: 700 14px/1.3 ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+
+#visa-automator-floating-panel [data-state="error"],
+#visa-automator-floating-panel [aria-invalid="true"] {
+  color: #ffd4d7;
+  border-color: var(--bp-red) !important;
+}
+
+#visa-automator-floating-panel [data-state="success"] {
+  color: var(--bp-green);
+}
+
+#visa-automator-floating-panel button,
+#visa-automator-floating-panel [role="button"],
+#visa-automator-floating-panel select,
+#visa-automator-floating-panel input,
+#visa-automator-floating-panel textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+#visa-automator-floating-panel button,
+#visa-automator-floating-panel [role="button"] {
+  cursor: pointer;
+  transition: color .14s ease, background-color .14s ease, border-color .14s ease, transform .14s ease;
+}
+
+#visa-automator-floating-panel button:hover:not(:disabled),
+#visa-automator-floating-panel [role="button"]:hover:not([aria-disabled="true"]) {
+  border-color: rgba(85, 230, 225, .55) !important;
+}
+
+#visa-automator-floating-panel button:active:not(:disabled),
+#visa-automator-floating-panel [role="button"]:active:not([aria-disabled="true"]) {
+  transform: translateY(1px);
+}
+
+#visa-automator-floating-panel :is(button, input, select, textarea, [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid var(--bp-cyan) !important;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(85, 230, 225, .15) !important;
+}
+
+#visa-automator-floating-panel button:disabled,
+#visa-automator-floating-panel [aria-disabled="true"] {
+  color: #8793a0 !important;
+  background: #171d25 !important;
+  border-color: #303a45 !important;
+  box-shadow: none !important;
+  cursor: not-allowed !important;
+  opacity: .72;
+}
+
+#visa-automator-floating-panel [hidden] {
+  display: none !important;
+}
+
+@media (max-width: 390px) {
+  #visa-automator-floating-panel {
+    width: calc(100vw - 20px) !important;
+    max-width: calc(100vw - 20px) !important;
+  }
+
+  #visa-automator-floating-panel #panel-content {
+    padding: 10px !important;
+  }
+
+  #visa-automator-floating-panel #panel-header > div:first-child > span:nth-child(2)::after {
+    font-size: 12px;
+    letter-spacing: .075em;
+  }
+
+  #visa-automator-floating-panel #panel-header > div:first-child > span:nth-child(3) {
+    display: none;
+  }
+
+  #visa-automator-floating-panel #tab-run-btn,
+  #visa-automator-floating-panel #tab-config-btn,
+  #visa-automator-floating-panel #tab-license-btn {
+    font-size: 9px !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #visa-automator-floating-panel *,
+  #visa-automator-floating-panel *::before,
+  #visa-automator-floating-panel *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+@media (forced-colors: active) {
+  #visa-automator-floating-panel {
+    color: CanvasText !important;
+    background: Canvas !important;
+    border: 2px solid CanvasText !important;
+    box-shadow: none !important;
+    forced-color-adjust: auto;
+  }
+
+  #visa-automator-floating-panel :is(button, input, select, textarea, [role="button"], [data-bp-step]::before) {
+    color: ButtonText !important;
+    background: ButtonFace !important;
+    border: 1px solid ButtonText !important;
+  }
+
+  #visa-automator-floating-panel :is(button, input, select, textarea, [role="button"]):focus-visible {
+    outline: 3px solid Highlight !important;
+  }
+}
+
+@keyframes bp-spin { to { transform: rotate(360deg); } }
+
+#visa-automator-floating-panel .bp-brand {
+  display: flex !important;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+#visa-automator-floating-panel .bp-mark {
+  display: grid;
+  width: 30px !important;
+  height: 30px !important;
+  flex: 0 0 30px;
+  place-items: center;
+  overflow: visible;
+  background: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+#visa-automator-floating-panel .bp-mark svg {
+  display: block;
+  width: 28px;
+  height: 28px;
+  filter: drop-shadow(0 0 5px rgba(85, 230, 225, .32));
+}
+
+#visa-automator-floating-panel .bp-title {
+  flex: 0 1 auto;
+}
+
+#visa-automator-floating-panel .bp-version {
+  flex: 0 0 auto;
+}
+
+#visa-automator-floating-panel .bp-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+#visa-automator-floating-panel .bp-header-actions button {
+  min-height: 26px;
+  padding: 4px 6px;
+  color: var(--bp-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 10px;
+}
+
+#visa-automator-floating-panel .bp-run-state {
+  padding: 3px 6px;
+  color: var(--bp-cyan);
+  background: rgba(85, 230, 225, .07);
+  border: 1px solid rgba(85, 230, 225, .23);
+  border-radius: 5px;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .07em;
+  white-space: nowrap;
+}
+
+#visa-automator-floating-panel .bp-run-state[data-state="paused"] {
+  color: var(--bp-amber);
+  border-color: rgba(243, 198, 111, .3);
+}
+
+#visa-automator-floating-panel .bp-run-state[data-state="manual"] {
+  color: var(--bp-violet);
+  border-color: rgba(180, 154, 255, .32);
+}
+
+#visa-automator-floating-panel .bp-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0 0 10px;
+  padding: 4px;
+  background: #090e15;
+  border: 1px solid #202d3a;
+  border-radius: 8px;
+}
+
+#visa-automator-floating-panel .bp-tab {
+  min-height: 32px;
+  padding: 6px 3px;
+  color: var(--bp-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 750;
+  line-height: 1.1;
+  letter-spacing: .06em;
+}
+
+#visa-automator-floating-panel .bp-tab[aria-selected="true"] {
+  color: var(--bp-cyan);
+  background: rgba(85, 230, 225, .1);
+  border-color: rgba(85, 230, 225, .25);
+  box-shadow: inset 0 -2px var(--bp-cyan-strong);
+}
+
+#visa-automator-floating-panel .tab-view:not([hidden]) {
+  display: block !important;
+}
+
+#visa-automator-floating-panel .bp-section {
+  margin: 0 0 9px;
+  padding: 9px;
+  background: var(--bp-panel) !important;
+  border: 1px solid var(--bp-line);
+  border-radius: 8px;
+}
+
+#visa-automator-floating-panel .bp-section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 7px;
+  color: var(--bp-cyan);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .075em;
+}
+
+#visa-automator-floating-panel .bp-credentials {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+
+#visa-automator-floating-panel .bp-credentials label,
+#visa-automator-floating-panel #view-config label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  margin: 0 0 7px;
+  color: var(--bp-muted);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .06em;
+}
+
+#visa-automator-floating-panel .bp-credentials input,
+#visa-automator-floating-panel #view-config input,
+#visa-automator-floating-panel #view-config select {
+  width: 100%;
+}
+
+#visa-automator-floating-panel .bp-phone-card {
+  margin-bottom: 8px;
+}
+
+#visa-automator-floating-panel .bp-check {
+  display: flex !important;
+  align-items: center;
+  gap: 7px !important;
+  margin: 0 !important;
+  color: var(--bp-text) !important;
+  font-size: 10px !important;
+  font-weight: 650 !important;
+  letter-spacing: 0 !important;
+  cursor: pointer;
+}
+
+#visa-automator-floating-panel .bp-client-key-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+#visa-automator-floating-panel .bp-client-key-row button,
+#visa-automator-floating-panel .bp-inline-note button,
+#visa-automator-floating-panel .bp-log-heading button,
+#visa-automator-floating-panel .bp-secondary-btn {
+  min-height: 29px;
+  padding: 5px 7px;
+  color: var(--bp-cyan);
+  background: #17222e;
+  border: 1px solid #34485a;
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+#visa-automator-floating-panel .bp-inline-note {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  color: var(--bp-muted);
+  font-size: 9px;
+}
+
+#visa-automator-floating-panel .bp-inline-note button {
+  min-height: 24px;
+  padding: 3px 5px;
+  background: transparent;
+  border-color: transparent;
+}
+
+#visa-automator-floating-panel .bp-otp-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+  margin: 0 0 8px;
+  padding: 7px;
+  background: var(--bp-panel);
+  border: 1px solid var(--bp-line);
+  border-radius: 8px;
+}
+
+#visa-automator-floating-panel .bp-run-controls {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+#visa-automator-floating-panel .bp-run-controls button {
+  min-height: 36px;
+  padding: 7px 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .035em;
+}
+
+#visa-automator-floating-panel #start-btn {
+  color: #061516;
+  background: linear-gradient(110deg, #65ede3, #42d8d5);
+}
+
+#visa-automator-floating-panel #pause-btn {
+  color: #e4ceff;
+  background: rgba(126, 96, 185, .15);
+  border-color: rgba(180, 154, 255, .24);
+}
+
+#visa-automator-floating-panel #stop-btn {
+  color: #ffc0c5;
+  background: rgba(132, 48, 63, .2);
+  border-color: rgba(255, 138, 145, .28);
+}
+
+#visa-automator-floating-panel .bp-files {
+  margin-top: 9px;
+}
+
+#visa-automator-floating-panel .bp-file-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+#visa-automator-floating-panel .bp-file-slot {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+#visa-automator-floating-panel .webfile-slot-btn {
+  min-height: 34px;
+  padding: 5px 2px;
+  overflow: hidden;
+  font-size: 8px;
+  text-overflow: ellipsis;
+}
+
+#visa-automator-floating-panel .primary-toggle-btn {
+  min-height: 22px;
+  padding: 2px 1px;
+  color: var(--bp-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 7px;
+  font-weight: 750;
+}
+
+#visa-automator-floating-panel #slot-names-display {
+  margin-top: 7px;
+  color: var(--bp-muted);
+  font-size: 9px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+#visa-automator-floating-panel .bp-status-card {
+  margin-top: 9px;
+  padding: 9px;
+  background: var(--bp-panel);
+  border: 1px solid var(--bp-line);
+  border-radius: 8px;
+}
+
+#visa-automator-floating-panel #workflow-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: #0b1119;
+  border: 1px solid #263544;
+  border-radius: 7px;
+}
+
+#visa-automator-floating-panel #workflow-indicator {
+  display: grid;
+  width: 13px;
+  height: 13px;
+  flex: 0 0 13px;
+  place-items: center;
+  color: var(--bp-cyan);
+  font-size: 13px;
+}
+
+#visa-automator-floating-panel #workflow-indicator.va-working {
+  border: 2px solid rgba(85, 230, 225, .22);
+  border-top-color: var(--bp-cyan);
+  border-radius: 50%;
+  animation: bp-spin .8s linear infinite;
+}
+
+#visa-automator-floating-panel .bp-status-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+#visa-automator-floating-panel #workflow-title {
+  display: block;
+  color: var(--bp-text);
+  font-size: 11px;
+}
+
+#visa-automator-floating-panel #workflow-detail {
+  margin-top: 3px;
+  color: var(--bp-muted);
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+#visa-automator-floating-panel #workflow-retry {
+  min-height: 27px;
+  padding: 4px 6px;
+  color: #061516;
+  background: var(--bp-cyan-strong);
+  border: 1px solid rgba(85, 230, 225, .5);
+  border-radius: 4px;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+#visa-automator-floating-panel .bp-telemetry {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin-top: 7px;
+}
+
+#visa-automator-floating-panel .bp-telemetry > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 5px;
+  padding: 5px 7px;
+  color: var(--bp-muted);
+  background: #0c131c;
+  border: 1px solid #263644;
+  border-radius: 5px;
+  font-size: 8px;
+  font-weight: 750;
+}
+
+#visa-automator-floating-panel .bp-telemetry strong {
+  max-width: 58%;
+  overflow: hidden;
+  color: var(--bp-text);
+  font-size: 8px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#visa-automator-floating-panel .bp-config-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px 8px;
+}
+
+#visa-automator-floating-panel .bp-toggle-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px 7px;
+}
+
+#visa-automator-floating-panel .bp-note {
+  margin: 5px 0 0;
+  color: var(--bp-muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+#visa-automator-floating-panel .bp-payment-note {
+  border-color: rgba(180, 154, 255, .26);
+}
+
+#visa-automator-floating-panel .bp-payment-note .bp-section-heading {
+  color: var(--bp-violet);
+}
+
+#visa-automator-floating-panel .bp-payment-note p {
+  margin: 0;
+  color: var(--bp-muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+#visa-automator-floating-panel #reset-config-btn {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+#visa-automator-floating-panel .bp-log-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 7px;
+  color: var(--bp-cyan);
+  font-size: 10px;
+  letter-spacing: .08em;
+}
+
+#visa-automator-floating-panel #view-log {
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+#visa-automator-floating-panel #va-log-list {
+  height: 340px;
+  padding: 8px;
+  overflow: auto;
+  color: #a9e9dc;
+  background: #080d13;
+  border: 1px solid #263441;
+  border-radius: 7px;
+  font: 9px/1.55 ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+
+#visa-automator-floating-panel .bp-log-entry {
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(56, 75, 91, .35);
+  overflow-wrap: anywhere;
+}
+
+#visa-automator-floating-panel .bp-debug-list {
+  display: grid;
+  grid-template-columns: minmax(80px, .75fr) 1.25fr;
+  gap: 7px 8px;
+  margin: 0 0 10px;
+  font-size: 9px;
+}
+
+#visa-automator-floating-panel .bp-debug-list dt {
+  color: var(--bp-muted);
+  font-weight: 700;
+}
+
+#visa-automator-floating-panel .bp-debug-list dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--bp-cyan);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 390px) {
+  #visa-automator-floating-panel .bp-title::after {
+    font-size: 11px;
+  }
+}
+
+#visa-automator-floating-panel #panel-header .bp-title::after {
+  content: "BLACK PANTHER — SLOT AUTOMATION";
+  font-size: 10px;
+  letter-spacing: .07em;
+}
+
+#visa-automator-floating-panel #panel-header .bp-version {
+  display: none;
+}

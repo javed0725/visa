@@ -13,13 +13,13 @@ chrome.action.onClicked.addListener(async tab => {
     try {
       await chrome.tabs.sendMessage(tab.id, { type: 'OPEN_AUTOMATOR_PANEL' });
       await chrome.action.setBadgeText({ tabId: tab.id, text: '' });
-      await chrome.action.setTitle({ tabId: tab.id, title: 'Open Visa Automator Pro' });
+      await chrome.action.setTitle({ tabId: tab.id, title: 'Open BLACK PANTHER — SLOT AUTOMATION' });
     } catch {
       // Never reload an applicant's live form without their consent.
       await chrome.action.setBadgeText({ tabId: tab.id, text: '↻' });
       await chrome.action.setTitle({
         tabId: tab.id,
-        title: 'Refresh this appointment tab once to activate Visa Automator Pro'
+        title: 'Refresh this appointment tab once to activate BLACK PANTHER — SLOT AUTOMATION'
       });
     }
   } catch (error) {

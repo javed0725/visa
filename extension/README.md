@@ -1,8 +1,8 @@
-# Visa Automator Pro — Chrome extension
+# BLACK PANTHER — SLOT AUTOMATION
 
 ## Install
 
-1. Download **visa-automator-pro-chrome.zip** and extract it fully. Do not select
+1. Download **black-panther-slot-automation.zip** and extract it fully. Do not select
    the ZIP itself or load the entire Replit project.
 2. Open `chrome://extensions` in desktop Chrome.
 3. Turn on **Developer mode**.
@@ -23,6 +23,21 @@ Click the extension's Chrome toolbar icon to reopen a closed floating panel.
 From another website, the icon opens the appointment site in a new tab. If the
 toolbar icon shows a refresh indicator, refresh the appointment tab once.
 
+## Black Panther panel
+
+The compact panel is organized into **RUN**, **CONFIG**, **LOG**, and **DEBUG**.
+RUN shows the live 10-step roadmap, current activity, four document slots
+(Primary PDF and CO1–CO3), quick recovery actions, and workflow metrics. CONFIG
+saves scan timing, rate-limit backoff, date range/order, live page mission/center
+options, and automation toggles in extension storage. LOG and DEBUG contain
+session events and non-sensitive diagnostics.
+
+**Fix CF** only scrolls to the site's security challenge; solve it on the official
+page. **Force Resume** rechecks the current step without bypassing upload,
+CAPTCHA, or site confirmations. The extension stops at the payment handoff:
+payment details, bKash PINs, and payment submission stay outside the extension
+and must be handled manually on the official page.
+
 ## Fixing “Manifest file is missing or unreadable”
 
 This error occurs when Chrome cannot find a readable `manifest.json` at the
@@ -36,6 +51,7 @@ manifest.json
 background.js
 phone-relay.js
 content.js
+black-panther.css
 options.html
 options.js
 README.md
@@ -53,7 +69,9 @@ LAN/Termux endpoint and its permission have been removed.
 1. Publish/run the supplied relay at a publicly reachable HTTPS address.
 2. In the extension panel select **Relay setup**, enter only that HTTPS origin
    (no `/api` path), approve access to that one origin, and save.
-3. Enable **Phone OTP auto-fill**. Copy the displayed **Client Key**.
+3. In RUN, enable **Link phone relay** and copy the displayed **Client Key**.
+   In CONFIG, keep **Auto OTP fill** and **Auto-submit OTP** enabled if you want
+   the paired code filled and submitted automatically.
 4. Install the companion APK on an Android 8+ phone you own. Enter the same relay
    address and Client Key, tap **Pair phone**, then grant SMS access after reading
    the disclosure. The key must be paired within ten minutes and is single-use.
@@ -62,7 +80,7 @@ LAN/Termux endpoint and its permission have been removed.
    wait request so the code arrives without waiting for a polling interval.
 
 **Copy** copies the key; **New key** revokes the previous phone and pending OTP.
-The auto-fill switch pauses relay delivery and erases any queued relay code.
+The relay switch pauses delivery and erases any queued relay code.
 Pairings last 24 hours. RESET also attempts remote revocation before clearing all
 extension storage. If the relay cannot be reached, unpair on the phone too.
 No public relay URL is included in the ZIP; the project must be published or
@@ -85,7 +103,7 @@ code, but never automatically retries the same code.
 
 ## Changes
 
-### Live workflow fixes (2.2.0)
+### Workflow and panel update (2.3.0)
 
 - Android attempts its HTTPS POST as soon as the matching SMS is parsed. The
   relay wakes an authenticated Chrome long-poll immediately; PostgreSQL
