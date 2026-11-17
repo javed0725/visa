@@ -10,7 +10,14 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  // Serverless functions scale by instance; one connection per warm instance
+  // prevents each concurrent invocation from opening a large pool.
+  max: process.env.VERCEL ? 1 : 10,
+  idleTimeoutMillis: 10_000,
+  connectionTimeoutMillis: 5_000,
+});
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";
