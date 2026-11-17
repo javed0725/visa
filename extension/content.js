@@ -912,10 +912,11 @@ function startAutomation() {
   logMessage('Adaptive automation started. Waiting for verified page transitions.');
   workflowObserver = new MutationObserver(records => {
     // Ignore panel-only changes so logging does not trigger an endless observer loop.
-    if (records.some(r => !inPanel(r.target))) {
-      refreshConfigDropdowns();
-      scheduleWorkflow(100);
-    }
+    const pageRecords = records.filter(record => !inPanel(record.target));
+    if (!pageRecords.length) return;
+    if (automationSettings.autoClosePopups && mutationAddsDialog(pageRecords)) executePopupCleanup();
+    refreshConfigDropdowns();
+    scheduleWorkflow(0);
   });
   workflowObserver.observe(document.body, {
     subtree: true, childList: true, attributes: true,
@@ -1313,6 +1314,10 @@ function workflowDialog(root) {
     !!button(/^confirm all information is correct$/i, root) ||
     !!button(CENTER_CONFIRM_LABEL, root) || !!button(/^continue booking$/i, root);
 }
+function mutationAddsDialog(records) {
+  return records.some(record => Array.from(record.addedNodes || []).some(node =>
+    node.nodeType === 1 && (node.matches?.(PAGE.dialogs) || node.querySelector?.(PAGE.dialogs))));
+}
 function hasWorkflowControls(root) {
   return !!first(`${PAGE.otp}, ${PAGE.phone}, input[type="password"], ${PAGE.mission}, ${PAGE.center}`, root) ||
     fileInputs(root).length > 0 || !!first(PAGE.captcha, root);
@@ -1325,7 +1330,7 @@ function executePopupCleanup() {
     // Never destroy a live OTP, CAPTCHA, document or other data-entry form.
     if (workflowDialog(dialog) || hasWorkflowControls(dialog) || first('input:not([type="hidden"]), select, textarea', dialog)) continue;
     const dismiss = all('button, a, [role="button"]', dialog).find(el =>
-      /^(close|cancel|dismiss|not now|no thanks|ok|okay|got it|×|✕|x)$/i.test(label(el)) ||
+      /^(close|cancel|dismiss|not now|no thanks|×|✕|x)$/i.test(label(el)) ||
       el.matches('.modal-close, .swal2-close, [data-dismiss="modal"], [data-bs-dismiss="modal"]'));
     if (dismiss && click(dismiss, 1200)) closed = true;
   }
@@ -1511,6 +1516,19 @@ function orderedUploadFiles() {
   return [primarySlotKey, ...FILE_SLOTS.filter(k => k != primarySlotKey)]
     .map(k => uploadedFilesMap[k]).filter(Boolean);
 }
+function uploadInputForRecord(step, record, recordIndex, inputs) {
+  if (record.input && inputs.includes(record.input)) return record.input;
+  const assigned = new Set(step.uploadRecords
+    .filter(other => other !== record && other.input && inputs.includes(other.input))
+    .map(other => other.input));
+  // Applicant controls can be added after the primary upload succeeds. Prefer
+  // a newly available field; when the page exposes one reusable field, cycle
+  // back to it only after all earlier files have been acknowledged.
+  const next = inputs.find(input => !assigned.has(input)) ||
+    (inputs.length === 1 ? inputs[0] : inputs[recordIndex % inputs.length]);
+  record.input = next || null;
+  return record.input;
+}
 function uploadReceipt(input) {
   return JSON.stringify([input.dataset.uploadStatus || '', all(PAGE.uploadOK, uploadScope(input))
     .map(el => el.outerHTML || label(el))]);
@@ -1521,7 +1539,13 @@ function performUploads(step) {
     return;
   }
   updateStage('Upload documents', '70%', 'Waiting for the primary document before secondary uploads.');
-  const inputs = fileInputs(step.root);
+  // Re-scan the page on every attempt: some applicant forms render later upload
+  // controls only after the preceding file has been accepted.
+  const inputs = fileInputs(document);
+  if (!inputs.length) {
+    updateStage('Upload documents', '70%', 'Waiting for the page to reveal an upload field.');
+    return;
+  }
   if (primarySlotKey && !uploadedFilesMap[primarySlotKey]) {
     updateStage('Upload documents', '70%', 'Load the selected primary document before uploading secondary files.');
     return;
@@ -1538,7 +1562,7 @@ function performUploads(step) {
   for (let i = 0; i < step.uploadRecords.length; i++) {
     const record = step.uploadRecords[i];
     if (record.done) continue;
-    const input = inputs.length === 1 ? inputs[0] : inputs[i];
+    const input = uploadInputForRecord(step, record, i, inputs);
     if (!input || input.disabled || input.matches?.(':disabled, [aria-disabled="true"]')) {
       updateStage('Upload documents', '70%', `Waiting for document ${i + 1}'s upload field to become ready.`);
       return;

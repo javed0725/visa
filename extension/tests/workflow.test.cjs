@@ -234,6 +234,32 @@ test('cleaner selects explicit Cancel rather than arbitrary Confirm', () => {
   assert.equal(e.run('clicks.join(",")'), 'Cancel');
 });
 
+test('cleaner does not treat a generic OK action as cancellation', () => {
+  const e = engine();
+  e.run(`
+    var dialog = {};
+    var okButton = {getAttribute: () => null, textContent: 'OK', matches: () => false};
+    all = (selector, root) => selector === PAGE.dialogs ? [dialog] : root === dialog ? [okButton] : [];
+    hasWorkflowControls = () => false;
+    click = el => { clicks.push(label(el)); return true; };
+    originalPopupCleanup();
+  `);
+  assert.equal(e.run('clicks.length'), 0);
+});
+
+test('new DOM dialogs are identified immediately by the popup observer helper', () => {
+  const e = engine();
+  e.run(`
+    var dialogNode = {
+      nodeType: 1,
+      matches: selector => selector === PAGE.dialogs,
+      querySelector: () => null
+    };
+    var popupMutationDetected = mutationAddsDialog([{addedNodes: [dialogNode]}]);
+  `);
+  assert.equal(e.run('popupMutationDetected'), true);
+});
+
 test('CAPTCHA waits for provider response instead of trying to click frame', () => {
   const e = engine();
   e.run(`
@@ -680,6 +706,30 @@ test('four documents upload primary-first and never advance ahead of acknowledgm
   assert.equal(e.run('clicks.length'), 1);
   assert.equal(e.run('uploadStep.uploadContinueSent'), true);
   assert.equal(e.run('stepStatus.filesUploaded'), false);
+});
+
+test('upload loop discovers applicant fields added after the primary is acknowledged', () => {
+  const e = uploadFlowEngine();
+  e.run(`
+    uploads = [uploads[0]];
+    performUploads(uploadStep);
+    uploads[0].ack = true;
+    uploads.push({
+      dataset:{}, files:[], ack:false, disabled:false, matches:()=>false,
+      dispatchEvent(event) {
+        if (event.type === 'change') {
+          this.ack = false;
+          attached.push(this.files[0].name);
+        }
+      }
+    });
+    performUploads(uploadStep);
+  `);
+  assert.equal(e.run('attached.join(",")'), 'document-3.pdf,document-1.pdf');
+  assert.equal(e.run('uploadStep.uploadRecords[0].done'), true);
+  assert.equal(e.run('uploadStep.uploadRecords[1].attached'), true);
+  assert.equal(e.run('uploadStep.uploadRecords[1].input === uploads[1]'), true);
+  assert.equal(e.run('clicks.length'), 0);
 });
 
 test('disabled primary input blocks all secondary document attachments', () => {
