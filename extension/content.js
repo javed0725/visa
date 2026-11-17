@@ -1309,6 +1309,13 @@ function scheduleWorkflow(delay = 700) {
 const NEXT_LABEL = /^next(?: step)?$/i;
 const DETAILS_LABEL = /^save\s*(?:and|&)\s*continue$/i;
 const CENTER_CONFIRM_LABEL = /^confirm mission\s*(?:&|and)\s*ivac center$/i;
+const REQUIRED_NOTICE_TEXT = /\bimportant\s+notice\b|\badvisory\b/i;
+function isRequiredNoticeDialog(dialog) {
+  return REQUIRED_NOTICE_TEXT.test(String(dialog?.innerText || dialog?.textContent || '').replace(/\s+/g, ' '));
+}
+function requiredNoticeDialog() {
+  return all(PAGE.dialogs).find(isRequiredNoticeDialog) || null;
+}
 function workflowDialog(root) {
   return !!button(NEXT_LABEL, root) || !!button(DETAILS_LABEL, root) ||
     !!button(/^confirm all information is correct$/i, root) ||
@@ -1328,7 +1335,8 @@ function executePopupCleanup() {
   const dialogs = all(PAGE.dialogs).reverse();
   for (const dialog of dialogs) {
     // Never destroy a live OTP, CAPTCHA, document or other data-entry form.
-    if (workflowDialog(dialog) || hasWorkflowControls(dialog) || first('input:not([type="hidden"]), select, textarea', dialog)) continue;
+    if (isRequiredNoticeDialog(dialog) || workflowDialog(dialog) || hasWorkflowControls(dialog) ||
+        first('input:not([type="hidden"]), select, textarea', dialog)) continue;
     const dismiss = all('button, a, [role="button"]', dialog).find(el =>
       /^(close|cancel|dismiss|not now|no thanks|×|✕|x)$/i.test(label(el)) ||
       el.matches('.modal-close, .swal2-close, [data-dismiss="modal"], [data-bs-dismiss="modal"]'));
@@ -1337,7 +1345,8 @@ function executePopupCleanup() {
   // Standalone close controls, but never unrelated position:absolute buttons.
   for (const el of all('.modal-close, button[aria-label="Close"], button[aria-label="Dismiss"], [data-bs-dismiss="modal"], [data-dismiss="modal"]')) {
     const host = el.closest(PAGE.dialogs);
-    if (host && !workflowDialog(host) && !hasWorkflowControls(host) && !first('input:not([type="hidden"]), select, textarea', host)) {
+    if (host && !isRequiredNoticeDialog(host) && !workflowDialog(host) && !hasWorkflowControls(host) &&
+        !first('input:not([type="hidden"]), select, textarea', host)) {
       if (click(el, 1200)) closed = true;
     }
   }
@@ -2006,6 +2015,10 @@ function executeWorkflowSteps(requestedKind = null) {
     if (metric) metric.innerText = ++attemptCount;
     // Cleaner runs on EVERY scan, even while another step is pending.
     if (executePopupCleanup()) return true;
+    if (requiredNoticeDialog()) {
+      updateStage('Review IVAC notice', '50%', 'Read the notice and close it manually to resume automation.');
+      return true;
+    }
     const candidates = detectSteps();
     // An informational Next popup may interrupt a pending request. Continue it
     // without abandoning the original step or declaring that step successful.

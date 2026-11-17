@@ -247,6 +247,56 @@ test('cleaner does not treat a generic OK action as cancellation', () => {
   assert.equal(e.run('clicks.length'), 0);
 });
 
+test('Important Notice and ADVISORY headings are recognized as required notices', () => {
+  for (const text of [
+    'Important Notice: booking hours and file requirements',
+    'ADVISORY – Mandatory Submission of Visa Undertaking Form'
+  ]) {
+    const e = engine();
+    e.run(`
+      var notice = {innerText: ${JSON.stringify(text)}, textContent: ${JSON.stringify(text)}};
+      var recognized = isRequiredNoticeDialog(notice);
+    `);
+    assert.equal(e.run('recognized'), true);
+  }
+});
+
+test('required notice is preserved and blocks automation until manually closed', () => {
+  const e = engine();
+  e.run(`
+    var noticePresent = true;
+    var notice = {
+      innerText: 'Important Notice: review appointment hours',
+      textContent: 'Important Notice: review appointment hours',
+      getAttribute: () => null,
+      querySelectorAll: () => []
+    };
+    var closeButton = {
+      textContent: '×',
+      getAttribute: () => null,
+      matches: () => false,
+      closest: () => notice
+    };
+    var visibleStage = '';
+    all = (selector, root) => {
+      if (selector === PAGE.dialogs) return noticePresent ? [notice] : [];
+      if (selector === '.modal-close, button[aria-label="Close"], button[aria-label="Dismiss"], [data-bs-dismiss="modal"], [data-dismiss="modal"]') return noticePresent ? [closeButton] : [];
+      return root === notice ? [closeButton] : [];
+    };
+    click = () => { clicks.push('close'); return true; };
+    executePopupCleanup = originalPopupCleanup;
+    updateStage = stage => { visibleStage = stage; };
+    pageCandidates = [sample('upload')];
+    executeWorkflowSteps();
+  `);
+  assert.equal(e.run('clicks.length'), 0);
+  assert.equal(e.run('activeStep'), null);
+  assert.equal(e.run('visibleStage'), 'Review IVAC notice');
+  e.run(`noticePresent = false; executeWorkflowSteps();`);
+  assert.equal(e.run('clicks.join(",")'), 'upload');
+  assert.equal(e.run('activeStep.kind'), 'upload');
+});
+
 test('new DOM dialogs are identified immediately by the popup observer helper', () => {
   const e = engine();
   e.run(`
