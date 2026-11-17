@@ -140,3 +140,17 @@ mtime_ms = 1794847017575
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c95153f8-4120-4f5d-9b29-b3fd42034cff/acb00c85-de61-45de-8e65-1018ede0f4f9/60e84712-4dc8-40df-a883-4a89a21da5e5"
 storage_version_token = "1794847067096349"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "oo1SDdfgQ-_sCXNtBgK1H"
+uri = "file://generated-artifacts/black-panther-extension.zip"
+type = "unspecified"
+title = "Black Panther Chrome Extension"
+description = "Complete unpacked-loadable Chrome extension ZIP; manifest.json is at the archive root."
+logical_id = "d0819eb3-9bd4-402f-920b-2c934b35e947"
+content_hash = "sha256:45d0788eac9f0846710c9b1d77993f59a103d6fb1f3413b3a7a30c595240cc4a"
+size = 61491
+mtime_ms = 1794908298466
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c95153f8-4120-4f5d-9b29-b3fd42034cff/d0819eb3-9bd4-402f-920b-2c934b35e947/5ba6dd40-a9c8-4ad1-b3e0-cac528005533"
+storage_version_token = "1794908312657544"
+content_type = "application/octet-stream"
