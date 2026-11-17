@@ -732,6 +732,65 @@ test('upload loop discovers applicant fields added after the primary is acknowle
   assert.equal(e.run('clicks.length'), 0);
 });
 
+test('already confirmed primary file is skipped and the next slot is uploaded', () => {
+  const e = uploadFlowEngine();
+  e.run(`
+    primarySlotKey = 1;
+    var primaryRow = {
+      textContent: 'document-1.pdf',
+      getAttribute: name => name === 'data-upload-status' ? 'success' :
+        name === 'data-file-name' ? 'document-1.pdf' : null,
+      matches: () => false,
+      querySelectorAll: () => []
+    };
+    all = selector => selector.startsWith('button') ? [continueButton] :
+      selector.includes('[data-upload-item]') ? [primaryRow] : [];
+    performUploads(uploadStep);
+  `);
+  assert.equal(e.run('uploadStep.uploadRecords[0].done'), true);
+  assert.equal(e.run('uploadStep.uploadRecords[0].input === uploads[0]'), true);
+  assert.equal(e.run('attached.join(",")'), 'document-2.pdf');
+  assert.equal(e.run('uploadStep.uploadRecords[1].attached'), true);
+  assert.equal(e.run('uploadStep.uploadRecords[1].input === uploads[1]'), true);
+});
+
+test('confirmed existing upload is recognized even after the page removes its input', () => {
+  const e = uploadFlowEngine();
+  e.run(`
+    uploadedFilesMap = {1:uploadedFilesMap[1],2:null,3:null,4:null};
+    primarySlotKey = 1;
+    fileInputs = () => [];
+    var primaryRow = {
+      textContent: 'document-1.pdf',
+      getAttribute: name => name === 'data-upload-status' ? 'success' :
+        name === 'data-file-name' ? 'document-1.pdf' : null,
+      matches: () => false,
+      querySelectorAll: () => []
+    };
+    all = selector => selector.startsWith('button') ? [continueButton] :
+      selector.includes('[data-upload-item]') ? [primaryRow] : [];
+    performUploads(uploadStep);
+  `);
+  assert.equal(e.run('uploadStep.uploadRecords[0].done'), true);
+  assert.equal(e.run('uploadStep.uploadContinueSent'), true);
+  assert.equal(e.run('clicks.join(",")'), 'continue');
+});
+
+test('filename without an upload success signal is not treated as already uploaded', () => {
+  const e = engine();
+  e.run(`
+    var filenameRow = {
+      textContent: 'document-1.pdf',
+      getAttribute: name => name === 'data-file-name' ? 'document-1.pdf' : null,
+      matches: () => false,
+      querySelectorAll: () => []
+    };
+    all = selector => selector.includes('[data-upload-item]') ? [filenameRow] : [];
+    var alreadyUploaded = pageConfirmsFile({name:'document-1.pdf',size:1}, []);
+  `);
+  assert.equal(e.run('alreadyUploaded'), false);
+});
+
 test('disabled primary input blocks all secondary document attachments', () => {
   const e = uploadFlowEngine();
   e.run(`uploads[0].disabled = true; performUploads(uploadStep);`);

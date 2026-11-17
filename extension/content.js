@@ -1512,6 +1512,39 @@ function uploadSucceeded(input) {
     // A bare check mark is accepted only in an upload's own status element.
     all('.upload-status, [data-upload-status], [role="status"]', root).some(el => /^[✓✔]$/.test(label(el)));
 }
+function uploadRowSucceeded(row) {
+  const directStatus = `${row.getAttribute?.('data-upload-status') || ''} ${row.getAttribute?.('data-status') || ''}`.trim();
+  if (/^(success|uploaded|complete|verified)$/i.test(directStatus)) return true;
+  if (row.matches?.(PAGE.uploadOK) || first(PAGE.uploadOK, row)) return true;
+  return all('[data-upload-status], [data-status], .upload-status, [role="status"]', row).some(el => {
+    const status = `${el.getAttribute('data-upload-status') || ''} ${el.getAttribute('data-status') || ''} ${label(el)}`.trim();
+    return /^(success|uploaded|upload(?:ed)? complete|upload(?:ed)? successfully|file uploaded successfully|verified|✓|✔)$/i.test(status);
+  });
+}
+function pageConfirmsFile(file, inputs = fileInputs(document), record = null) {
+  const expectedName = String(file?.name || '').trim().toLowerCase();
+  if (!expectedName) return false;
+  const selectedAndConfirmed = inputs.some(input =>
+    Array.from(input.files || []).some(selected =>
+      selected.name === file.name && selected.size === file.size) &&
+    uploadSucceeded(input) &&
+    // On a reused single input, an old green status must not confirm the
+    // newly assigned file until a new pending/success transition is observed.
+    (!record?.attached || record.sawPending || !record.wasAlreadySuccessful ||
+      uploadReceipt(input) !== record.receiptBeforeAttach));
+  if (selectedAndConfirmed) return true;
+  const rows = all('[data-upload-item], .upload-item, .ant-upload-list-item, .upload-row, [role="listitem"]');
+  return rows.some(row => {
+    if (inPanel(row)) return false;
+    const text = [
+      row.getAttribute('data-file-name') || '',
+      row.getAttribute('title') || '',
+      row.getAttribute('aria-label') || '',
+      row.textContent || ''
+    ].join(' ').toLowerCase();
+    return text.includes(expectedName) && uploadRowSucceeded(row);
+  });
+}
 function orderedUploadFiles() {
   return [primarySlotKey, ...FILE_SLOTS.filter(k => k != primarySlotKey)]
     .map(k => uploadedFilesMap[k]).filter(Boolean);
@@ -1542,10 +1575,6 @@ function performUploads(step) {
   // Re-scan the page on every attempt: some applicant forms render later upload
   // controls only after the preceding file has been accepted.
   const inputs = fileInputs(document);
-  if (!inputs.length) {
-    updateStage('Upload documents', '70%', 'Waiting for the page to reveal an upload field.');
-    return;
-  }
   if (primarySlotKey && !uploadedFilesMap[primarySlotKey]) {
     updateStage('Upload documents', '70%', 'Load the selected primary document before uploading secondary files.');
     return;
@@ -1562,6 +1591,12 @@ function performUploads(step) {
   for (let i = 0; i < step.uploadRecords.length; i++) {
     const record = step.uploadRecords[i];
     if (record.done) continue;
+    if (pageConfirmsFile(record.file, inputs, record)) {
+      record.done = true;
+      record.input = inputs[i] || null;
+      logMessage(`Document ${i + 1} is already confirmed on the page; skipping re-upload.`);
+      continue;
+    }
     const input = uploadInputForRecord(step, record, i, inputs);
     if (!input || input.disabled || input.matches?.(':disabled, [aria-disabled="true"]')) {
       updateStage('Upload documents', '70%', `Waiting for document ${i + 1}'s upload field to become ready.`);
