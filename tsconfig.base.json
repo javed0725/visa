@@ -3,6 +3,7 @@
     "incremental": true,
     "isolatedModules": true,
     "lib": ["es2022"],
+    "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
     "noEmitOnError": true,
